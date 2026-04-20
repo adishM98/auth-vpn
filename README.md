@@ -450,6 +450,44 @@ Types: Auth(0x01) AuthOK(0x02) AuthFail(0x03) IPPacket(0x04)
 
 ---
 
+## Uninstalling
+
+### Client
+
+```bash
+# Disconnect first if running in background
+auth-vpn disconnect
+
+# Remove the binary
+sudo rm /usr/local/bin/auth-vpn
+
+# Remove saved profiles and state
+rm -rf ~/.auth-vpn
+```
+
+### Server
+
+```bash
+# Stop and disable the systemd service
+sudo systemctl stop auth-vpn
+sudo systemctl disable auth-vpn
+
+# Remove the binary
+sudo rm /usr/local/bin/auth-vpn
+
+# Remove config, TLS certs, and tokens
+sudo rm -rf /etc/auth-vpn
+
+# Remove the systemd service file
+sudo rm -f /etc/systemd/system/auth-vpn.service
+sudo systemctl daemon-reload
+
+# Remove the Unix control socket (if present)
+sudo rm -f /var/run/auth-vpn.sock
+```
+
+---
+
 ## License
 
 MIT
