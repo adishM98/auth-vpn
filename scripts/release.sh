@@ -21,7 +21,7 @@ fi
 
 #── detect current version ────────────────────────────────────────────────────
 
-CURRENT=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+CURRENT=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
 if [[ -z "$CURRENT" ]]; then
   CURRENT="v0.0.0"
   echo "No existing tags found — starting from $CURRENT"
