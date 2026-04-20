@@ -12,20 +12,20 @@ import (
 func (s *Server) startHTTPAPI() {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/metrics", s.handleMetrics)
-	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/metrics", s.withAuth(s.handleMetrics))
+	mux.HandleFunc("/health", s.withAuth(s.handleHealth))
 	mux.HandleFunc("/api/clients", s.handleAPIClients)
 	mux.HandleFunc("/api/tokens", s.handleAPITokens)
 	mux.HandleFunc("/api/tokens/", s.handleAPITokenDelete)
 	mux.HandleFunc("/tooljet/", s.handleToolJet)
-	mux.HandleFunc("/ui", s.handleWebUI)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/ui", s.withAuth(s.handleWebUI))
+	mux.HandleFunc("/", s.withAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			http.Redirect(w, r, "/ui", http.StatusFound)
 			return
 		}
 		http.NotFound(w, r)
-	})
+	}))
 
 	srv := &http.Server{
 		Addr:         s.cfg.MetricsAddr,
@@ -117,18 +117,32 @@ func (s *Server) handleAPITokenDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"revoked": name})
 }
 
+// withAuth wraps a handler to require API key authentication when APIKey is set.
+func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.checkAPIKey(w, r) {
+			return
+		}
+		next(w, r)
+	}
+}
+
 // checkAPIKey returns true if the request is authorized. When APIKey is empty,
-// all requests are allowed (metrics-only mode).
+// all requests are allowed (open mode — suitable for internal-only deployments).
 func (s *Server) checkAPIKey(w http.ResponseWriter, r *http.Request) bool {
 	if s.cfg.APIKey == "" {
 		return true
 	}
+	// Accept Bearer token in Authorization header or ?key= query param (for browser direct access).
 	auth := r.Header.Get("Authorization")
-	if strings.TrimPrefix(auth, "Bearer ") != s.cfg.APIKey {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return false
+	if strings.TrimPrefix(auth, "Bearer ") == s.cfg.APIKey {
+		return true
 	}
-	return true
+	if r.URL.Query().Get("key") == s.cfg.APIKey {
+		return true
+	}
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

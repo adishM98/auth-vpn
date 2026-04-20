@@ -9,7 +9,7 @@ import (
 const (
 	ServerConfigFile = "/etc/auth-vpn/server.yaml"
 	ACLFile          = "/etc/auth-vpn/acl.yaml"
-	DefaultMetricsAddr = "localhost:9100"
+	DefaultMetricsAddr = "0.0.0.0:9100"
 )
 
 // ServerConfig is the schema for /etc/auth-vpn/server.yaml.

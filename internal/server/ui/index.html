@@ -136,7 +136,7 @@ async function fetchJSON(path) {
   return r.json();
 }
 
-const API_KEY = '';  // set if server started with --api-key
+const API_KEY = new URLSearchParams(window.location.search).get('key') || '';
 
 async function refresh() {
   try {
