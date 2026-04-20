@@ -1,6 +1,6 @@
 BINARY  = auth-vpn
 REPO    = adishM98/auth-vpn
-VERSION ?= 1.0.0
+VERSION ?= 1.0.1
 DIST    = dist
 
 .PHONY: build-linux build-mac-intel build-mac-arm build-windows build-all \
