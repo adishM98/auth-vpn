@@ -70,7 +70,7 @@ func serverInstallCmd() *cobra.Command {
 			fmt.Printf("  Connect with:\n")
 			fmt.Printf("    auth-vpn connect %s:%d --token %s\n", publicIP, port, rawToken)
 			fmt.Println()
-			fmt.Printf("  Web dashboard:  http://localhost:9100/ui\n")
+			fmt.Printf("  Web dashboard:  http://%s:9100/ui\n", publicIP)
 			fmt.Printf("  API key:        %s\n", apiKey)
 			fmt.Println("  ─────────────────────────────────────────────")
 			return nil
