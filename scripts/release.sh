@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+red()   { echo -e "\033[0;31m$*\033[0m"; }
+green() { echo -e "\033[0;32m$*\033[0m"; }
+bold()  { echo -e "\033[1m$*\033[0m"; }
+
+# ── repo root ─────────────────────────────────────────────────────────────────
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+# ── pre-flight checks ─────────────────────────────────────────────────────────
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  red "Working tree has uncommitted changes. Commit or stash them first."
+  exit 1
+fi
+
+if ! command -v gh &>/dev/null; then
+  red "gh CLI not found. Install: brew install gh  then: gh auth login"
+  exit 1
+fi
+
+# ── detect current version ────────────────────────────────────────────────────
+
+CURRENT=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+if [[ -z "$CURRENT" ]]; then
+  CURRENT="v0.0.0"
+  echo "No existing tags found — starting from $CURRENT"
+else
+  echo "Current version: $(bold "$CURRENT")"
+fi
+
+# Strip leading 'v'
+VERSION="${CURRENT#v}"
+MAJOR=$(echo "$VERSION" | cut -d. -f1)
+MINOR=$(echo "$VERSION" | cut -d. -f2)
+PATCH=$(echo "$VERSION" | cut -d. -f3)
+
+# ── choose bump type ──────────────────────────────────────────────────────────
+
+echo ""
+echo "Bump type:"
+echo "  1) patch  → v$MAJOR.$MINOR.$((PATCH+1))"
+echo "  2) minor  → v$MAJOR.$((MINOR+1)).0"
+echo "  3) major  → v$((MAJOR+1)).0.0"
+echo "  4) custom"
+echo ""
+read -rp "Choose [1]: " CHOICE
+CHOICE="${CHOICE:-1}"
+
+case "$CHOICE" in
+  1) NEW_VERSION="$MAJOR.$MINOR.$((PATCH+1))" ;;
+  2) NEW_VERSION="$MAJOR.$((MINOR+1)).0" ;;
+  3) NEW_VERSION="$((MAJOR+1)).0.0" ;;
+  4)
+    read -rp "Enter version (without v): " NEW_VERSION
+    if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+      red "Invalid version format. Use X.Y.Z"
+      exit 1
+    fi
+    ;;
+  *)
+    red "Invalid choice"
+    exit 1
+    ;;
+esac
+
+NEW_TAG="v$NEW_VERSION"
+
+echo ""
+bold "Releasing $NEW_TAG"
+echo ""
+read -rp "Continue? [y/N]: " CONFIRM
+if [[ "${CONFIRM,,}" != "y" ]]; then
+  echo "Aborted."
+  exit 0
+fi
+
+# ── update Makefile version ───────────────────────────────────────────────────
+
+sed -i.bak "s/^VERSION ?= .*/VERSION ?= $NEW_VERSION/" Makefile
+rm -f Makefile.bak
+
+# ── commit + tag + push ───────────────────────────────────────────────────────
+
+git add Makefile
+git commit -m "chore: release $NEW_TAG"
+
+git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git push origin "$BRANCH"
+git push origin "$NEW_TAG"
+
+# ── done ──────────────────────────────────────────────────────────────────────
+
+echo ""
+green "✓ Tagged and pushed $NEW_TAG"
+echo ""
+bold "Next steps:"
+echo ""
+echo "  1. Build all binaries and publish to GitHub:"
+echo ""
+echo "       make release VERSION=$NEW_VERSION"
+echo ""
+echo "  2. Or open the GitHub releases page and publish the draft manually:"
+echo ""
+echo "       https://github.com/adishM98/auth-vpn/releases/tag/$NEW_TAG"
+echo ""
