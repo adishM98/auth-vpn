@@ -9,7 +9,7 @@ bold()  { printf "\033[1m%s\033[0m\n" "$*"; }
 
 # ── repo root ─────────────────────────────────────────────────────────────────
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # ── pre-flight checks ─────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ echo ""
 bold "Releasing $NEW_TAG"
 echo ""
 read -rp "Continue? [y/N]: " CONFIRM
-if [[ "${CONFIRM,,}" != "y" ]]; then
+if [[ "$(echo "$CONFIRM" | tr '[:upper:]' '[:lower:]')" != "y" ]]; then
   echo "Aborted."
   exit 0
 fi
