@@ -11,6 +11,13 @@ const (
 	TypePing       byte = 0x05 // keepalive ping
 	TypePong       byte = 0x06 // keepalive pong
 	TypeDisconnect byte = 0x07 // graceful disconnect
+
+	// Proxy mode — TCP port-forward without TUN device (no CAP_NET_ADMIN needed).
+	TypeProxyDial  byte = 0x08 // client → server: open a TCP stream to host:port
+	TypeProxyOK    byte = 0x09 // server → client: stream opened
+	TypeProxyFail  byte = 0x0A // server → client: stream open failed
+	TypeProxyData  byte = 0x0B // bidirectional: data for a stream; payload = [4 bytes stream_id][data]
+	TypeProxyClose byte = 0x0C // bidirectional: close a stream; payload = [4 bytes stream_id]
 )
 
 // Wire format (big-endian):
@@ -20,6 +27,25 @@ const (
 // AuthRequest is the JSON payload for TypeAuth.
 type AuthRequest struct {
 	Token string `json:"token"`
+	Mode  string `json:"mode,omitempty"` // "" or "tun" = TUN mode; "proxy" = proxy port-forward mode
+}
+
+// ProxyDialRequest is the JSON payload for TypeProxyDial.
+type ProxyDialRequest struct {
+	StreamID uint32 `json:"stream_id"`
+	Host     string `json:"host"`
+	Port     uint16 `json:"port"`
+}
+
+// ProxyDialOK is the JSON payload for TypeProxyOK.
+type ProxyDialOK struct {
+	StreamID uint32 `json:"stream_id"`
+}
+
+// ProxyDialFail is the JSON payload for TypeProxyFail.
+type ProxyDialFail struct {
+	StreamID uint32 `json:"stream_id"`
+	Reason   string `json:"reason"`
 }
 
 // AuthOKResponse is the JSON payload for TypeAuthOK.

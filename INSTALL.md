@@ -207,6 +207,46 @@ status: connected
 
 ---
 
+## Part 2b — Docker sidecar (proxy mode, no root, no image changes)
+
+Use this when you can't or don't want to modify the app's Docker image.
+auth-vpn runs as a sidecar container sharing the main container's network
+namespace — so `127.0.0.1` inside the app resolves to auth-vpn's listeners.
+
+```yaml
+services:
+  app:
+    image: your-app-image   # no changes needed
+    env_file: .env
+
+  auth-vpn:
+    image: adishm98/auth-vpn:latest
+    network_mode: "service:app"   # shares app's loopback
+    restart: always
+    depends_on:
+      - app
+    environment:
+      VPN_HOST: "20.98.154.174:7777"
+      VPN_TOKEN: "${VPN_TOKEN}"
+      VPN_FORWARDS: "5432:10.8.0.1:5432,3306:10.8.0.1:3306"
+```
+
+`.env` (never commit this file):
+```
+VPN_TOKEN=abc123xyz
+```
+
+| Env var | Required | Description |
+|---|---|---|
+| `VPN_HOST` | Yes | Server `ip:port`, e.g. `20.98.154.174:7777` |
+| `VPN_TOKEN` | Yes | Token from `auth-vpn server tokens add` |
+| `VPN_FORWARDS` | Yes | Comma-separated `localPort:remoteHost:remotePort` |
+| `VPN_INSECURE` | No | `true` to skip TLS verification (dev only) |
+
+Configure the app's datasource/DB connection to use `host: 127.0.0.1`.
+
+---
+
 ## Part 3 — Other VMs (ToolJet VM, test VMs, etc.)
 
 ```bash

@@ -163,6 +163,30 @@ auth-vpn status
 auth-vpn disconnect
 ```
 
+### Proxy mode (no TUN device, no root required)
+
+Use `--forward` instead of a TUN tunnel. auth-vpn binds a local port and forwards
+all TCP traffic through the encrypted tunnel to the remote host:port.
+Works anywhere — Docker containers, Render, Railway, Cloud Run, CI runners.
+
+```bash
+# Forward local 5432 → postgres on the VM, local 6379 → redis on the VM
+auth-vpn connect 20.98.154.174:7777 --token <token> \
+  --forward 5432:10.8.0.1:5432 \
+  --forward 6379:10.8.0.1:6379 \
+  --background --reconnect
+
+# Multiple forwards, background + auto-reconnect
+auth-vpn connect staging \
+  --forward 5432:10.8.0.1:5432 \
+  --forward 3306:10.8.0.1:3306 \
+  --forward 27017:10.8.0.1:27017 \
+  --background --reconnect
+```
+
+Point your app at `127.0.0.1:<localPort>` — it connects as if the service is local.
+No routing table changes, no kernel privileges needed.
+
 ### Profiles
 
 ```bash
@@ -336,6 +360,47 @@ services:
       - "5432:5432"       # ✅ accessible through tunnel
       # not: "127.0.0.1:5432:5432"  — tunnel can't reach this
 ```
+
+---
+
+## Docker sidecar (proxy mode — no image changes needed)
+
+Run auth-vpn as a sidecar container alongside any existing service using
+`network_mode: "service:<name>"`. The sidecar shares the main container's
+network namespace, so `127.0.0.1` ports it binds are visible inside the
+main container. No changes to the main image required.
+
+```yaml
+services:
+  app:
+    image: your-app-image   # unchanged — zero modifications
+    env_file: .env
+
+  auth-vpn:
+    image: adishm98/auth-vpn:latest
+    network_mode: "service:app"   # shares app's loopback interface
+    restart: always
+    depends_on:
+      - app
+    environment:
+      VPN_HOST: "20.98.154.174:7777"
+      VPN_TOKEN: "${VPN_TOKEN}"          # from .env
+      VPN_FORWARDS: "5432:10.8.0.1:5432,3306:10.8.0.1:3306"
+```
+
+`.env`:
+```
+VPN_TOKEN=abc123xyz
+```
+
+| Env var | Required | Description |
+|---|---|---|
+| `VPN_HOST` | Yes | Server address, e.g. `20.98.154.174:7777` |
+| `VPN_TOKEN` | Yes | Auth token from `auth-vpn server tokens add` |
+| `VPN_FORWARDS` | Yes | Comma-separated `localPort:remoteHost:remotePort` |
+| `VPN_INSECURE` | No | Set to `true` to skip TLS verification (dev only) |
+
+The app connects to `127.0.0.1:5432` — it has no idea there's a tunnel involved.
 
 ---
 

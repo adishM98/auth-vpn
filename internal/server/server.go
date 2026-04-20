@@ -250,6 +250,16 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 	defer s.tokens.Unclaim(req.Token)
 
+	// Proxy mode: no TUN, no IP assignment — just TCP port forwarding.
+	if req.Mode == "proxy" {
+		if err := tunnel.WriteFrame(conn, protocol.TypeAuthOK, protocol.Encode(protocol.AuthOKResponse{})); err != nil {
+			log.Printf("send AUTH_OK (proxy) to %s: %v", tok.Name, err)
+			return
+		}
+		s.handleProxyConn(conn, tok.Name)
+		return
+	}
+
 	client, err := s.clients.Assign(tok.Name, conn)
 	if err != nil {
 		log.Printf("assign IP for %s: %v", tok.Name, err)

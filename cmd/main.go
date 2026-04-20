@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -307,6 +309,7 @@ func serverClientsCmd() *cobra.Command {
 func connectCmd() *cobra.Command {
 	var token string
 	var background, wait, insecure, reconnect bool
+	var forwardRules []string
 
 	cmd := &cobra.Command{
 		Use:   "connect <host:port|profile-name>",
@@ -342,6 +345,18 @@ func connectCmd() *cobra.Command {
 				}
 			}
 
+			// Proxy mode: --forward localPort:remoteHost:remotePort
+			if len(forwardRules) > 0 {
+				forwards, err := parseForwardRules(forwardRules)
+				if err != nil {
+					return err
+				}
+				if reconnect {
+					return client.ConnectProxyWithReconnect(opts, forwards)
+				}
+				return client.ConnectProxy(opts, forwards)
+			}
+
 			if reconnect {
 				return client.ConnectWithReconnect(opts)
 			}
@@ -353,7 +368,48 @@ func connectCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until server is reachable before connecting (CI use)")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification (dev only)")
 	cmd.Flags().BoolVar(&reconnect, "reconnect", false, "Auto-reconnect with exponential backoff on unexpected drop")
+	cmd.Flags().StringArrayVar(&forwardRules, "forward", nil, "Forward local port to remote (localPort:remoteHost:remotePort), e.g. 5432:10.8.0.1:5432")
 	return cmd
+}
+
+// parseForwardRules parses --forward flags of the form localPort:remoteHost:remotePort.
+func parseForwardRules(rules []string) ([]client.ForwardRule, error) {
+	result := make([]client.ForwardRule, 0, len(rules))
+	for _, r := range rules {
+		// Split into exactly 3 parts: localPort, remoteHost, remotePort
+		// remoteHost may contain colons (IPv6), so split on first and last colon.
+		idx := strings.Index(r, ":")
+		if idx < 0 {
+			return nil, fmt.Errorf("invalid --forward %q: expected localPort:remoteHost:remotePort", r)
+		}
+		localStr := r[:idx]
+		rest := r[idx+1:]
+
+		lastIdx := strings.LastIndex(rest, ":")
+		if lastIdx < 0 {
+			return nil, fmt.Errorf("invalid --forward %q: expected localPort:remoteHost:remotePort", r)
+		}
+		remoteHost := rest[:lastIdx]
+		remotePortStr := rest[lastIdx+1:]
+
+		localPort, err := strconv.Atoi(localStr)
+		if err != nil || localPort < 1 || localPort > 65535 {
+			return nil, fmt.Errorf("invalid local port in --forward %q", r)
+		}
+		remotePort, err := strconv.Atoi(remotePortStr)
+		if err != nil || remotePort < 1 || remotePort > 65535 {
+			return nil, fmt.Errorf("invalid remote port in --forward %q", r)
+		}
+		if remoteHost == "" {
+			return nil, fmt.Errorf("empty remote host in --forward %q", r)
+		}
+		result = append(result, client.ForwardRule{
+			LocalPort:  localPort,
+			RemoteHost: remoteHost,
+			RemotePort: remotePort,
+		})
+	}
+	return result, nil
 }
 
 // ─── disconnect ───────────────────────────────────────────────────────────────
