@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>auth-vpn dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --text: #e2e8f0; --muted: #8892a4; --accent: #6366f1;
+    --green: #22c55e; --red: #ef4444; --yellow: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px;
+           display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  header h1 span { color: var(--accent); }
+  #status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+                display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  #last-updated { font-size: 12px; color: var(--muted); }
+  main { max-width: 960px; margin: 0 auto; padding: 24px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+  .stat-value { font-size: 28px; font-weight: 700; }
+  section { margin-bottom: 28px; }
+  h2 { font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+       letter-spacing: .5px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface);
+          border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th { text-align: left; padding: 10px 14px; font-size: 11px; color: var(--muted);
+       text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
+  td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+  .empty { padding: 24px 14px; color: var(--muted); font-style: italic; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: #14532d; color: var(--green); }
+  .btn { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+  .btn-danger { background: #7f1d1d; color: var(--red); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-danger:hover { background: #991b1b; }
+  .btn-primary:hover { background: #4f46e5; }
+  form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input[type=text] { background: var(--surface); border: 1px solid var(--border); color: var(--text);
+                     padding: 7px 11px; border-radius: 6px; font-size: 13px; outline: none; }
+  input[type=text]:focus { border-color: var(--accent); }
+  #token-result { font-family: monospace; font-size: 12px; background: #0a0c12;
+                  border: 1px solid var(--border); padding: 10px 14px; border-radius: 6px;
+                  color: var(--green); word-break: break-all; display: none; margin-top: 10px; }
+  .mono { font-family: monospace; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>auth</span>-vpn</h1>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <span id="last-updated"></span>
+    <span><span id="status-dot"></span>live</span>
+  </div>
+</header>
+<main>
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Active Clients</div>
+      <div class="stat-value" id="s-active">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Total Connections</div>
+      <div class="stat-value" id="s-total">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Auth Failures</div>
+      <div class="stat-value" id="s-failures">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Uptime</div>
+      <div class="stat-value" id="s-uptime" style="font-size:18px;">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Data In</div>
+      <div class="stat-value" id="s-in" style="font-size:18px;">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Data Out</div>
+      <div class="stat-value" id="s-out" style="font-size:18px;">—</div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Connected Clients</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected At</th><th>In</th><th>Out</th><th>Status</th></tr></thead>
+      <tbody id="clients-body"><tr><td class="empty" colspan="6">loading...</td></tr></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Tokens</h2>
+    <form id="token-form" style="margin-bottom:12px;">
+      <input type="text" id="token-name" placeholder="device-name" required>
+      <label style="display:flex;align-items:center;gap:4px;color:var(--muted);">
+        <input type="checkbox" id="token-onetime"> one-time
+      </label>
+      <button type="submit" class="btn btn-primary">Create Token</button>
+    </form>
+    <div id="token-result"></div>
+    <table style="margin-top:12px;">
+      <thead><tr><th>Name</th><th>Created</th><th>Expires</th><th></th></tr></thead>
+      <tbody id="tokens-body"><tr><td class="empty" colspan="4">loading...</td></tr></tbody>
+    </table>
+  </section>
+</main>
+<script>
+const fmt = {
+  bytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+    if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB';
+    return (n/1073741824).toFixed(2) + ' GB';
+  },
+  uptime(s) {
+    s = Math.floor(s);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+    return h + 'h ' + m + 'm';
+  },
+  dt(iso) { return new Date(iso).toLocaleString(); }
+};
+
+async function fetchJSON(path) {
+  const r = await fetch(path, { headers: API_KEY ? {'Authorization':'Bearer '+API_KEY} : {} });
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+const API_KEY = '';  // set if server started with --api-key
+
+async function refresh() {
+  try {
+    const [health, clients, tokens] = await Promise.all([
+      fetchJSON('/health'),
+      fetchJSON('/api/clients'),
+      fetchJSON('/api/tokens'),
+    ]);
+
+    document.getElementById('s-active').textContent = health.clients;
+    document.getElementById('s-uptime').textContent = fmt.uptime(
+      parseFloat(health.uptime));
+
+    // parse metrics for total/failures/bytes
+    const metrics = await fetch('/metrics').then(r=>r.text());
+    const get = name => {
+      const m = metrics.match(new RegExp('^'+name+' (\\d+)', 'm'));
+      return m ? parseInt(m[1]) : 0;
+    };
+    document.getElementById('s-total').textContent = get('auth_vpn_connections_total');
+    document.getElementById('s-failures').textContent = get('auth_vpn_auth_failures_total');
+    document.getElementById('s-in').textContent = fmt.bytes(get('auth_vpn_bytes_in_total'));
+    document.getElementById('s-out').textContent = fmt.bytes(get('auth_vpn_bytes_out_total'));
+
+    const cb = document.getElementById('clients-body');
+    if (!clients.clients || clients.clients.length === 0) {
+      cb.innerHTML = '<tr><td class="empty" colspan="6">no clients connected</td></tr>';
+    } else {
+      cb.innerHTML = clients.clients.map(c => `
+        <tr>
+          <td>${esc(c.name)}</td>
+          <td class="mono">${esc(c.ip)}</td>
+          <td>${fmt.dt(c.connected_at)}</td>
+          <td>${fmt.bytes(c.bytes_in||0)}</td>
+          <td>${fmt.bytes(c.bytes_out||0)}</td>
+          <td><span class="badge badge-green">online</span></td>
+        </tr>`).join('');
+    }
+
+    const tb = document.getElementById('tokens-body');
+    if (!tokens.tokens || tokens.tokens.length === 0) {
+      tb.innerHTML = '<tr><td class="empty" colspan="4">no tokens</td></tr>';
+    } else {
+      tb.innerHTML = tokens.tokens.map(t => `
+        <tr>
+          <td>${esc(t.name)}</td>
+          <td>${fmt.dt(t.created_at)}</td>
+          <td>${t.expires_at ? fmt.dt(t.expires_at) : '—'}</td>
+          <td><button class="btn btn-danger" onclick="revokeToken('${esc(t.name)}')">Revoke</button></td>
+        </tr>`).join('');
+    }
+
+    document.getElementById('last-updated').textContent =
+      'updated ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    document.getElementById('status-dot').style.background = 'var(--red)';
+  }
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function revokeToken(name) {
+  if (!confirm('Revoke token "' + name + '"?')) return;
+  await fetch('/api/tokens/' + encodeURIComponent(name), {
+    method: 'DELETE',
+    headers: API_KEY ? {'Authorization':'Bearer '+API_KEY} : {},
+  });
+  refresh();
+}
+
+document.getElementById('token-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('token-name').value.trim();
+  const oneTime = document.getElementById('token-onetime').checked;
+  const r = await fetch('/api/tokens', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json',
+                ...(API_KEY ? {'Authorization':'Bearer '+API_KEY} : {}) },
+    body: JSON.stringify({ name, one_time: oneTime }),
+  });
+  const data = await r.json();
+  const box = document.getElementById('token-result');
+  if (data.token) {
+    box.style.display = 'block';
+    box.textContent = 'auth-vpn connect <host>:7777 --token ' + data.token;
+    document.getElementById('token-name').value = '';
+  } else {
+    box.style.display = 'block';
+    box.style.color = 'var(--red)';
+    box.textContent = data.error || 'error';
+  }
+  refresh();
+});
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

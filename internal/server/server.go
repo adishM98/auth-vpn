@@ -10,18 +10,15 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/adishM98/auth-vpn/internal/auth"
+	"github.com/adishM98/auth-vpn/internal/server/acl"
 	"github.com/adishM98/auth-vpn/internal/tunnel"
 	"github.com/adishM98/auth-vpn/pkg/protocol"
 )
 
-const (
-	defaultServerIP = "10.0.0.1/24"
-	defaultBaseIP   = "10.0.0"
-	defaultSubnet   = "10.0.0.0/24"
-	tunBufSize      = 65535
-)
+const tunBufSize = 65535
 
 // Server is the auth-vpn tunnel server.
 type Server struct {
@@ -30,29 +27,80 @@ type Server struct {
 	clients *clientRegistry
 	limiter *auth.RateLimiter
 	tun     *tunnel.Iface
+	acl     *acl.Engine
+	metrics *Metrics
 	done    chan struct{}
 	wg      sync.WaitGroup
 }
 
 // Config holds server runtime configuration.
 type Config struct {
-	Port     int
-	TLSCert  string
-	TLSKey   string
-	TokensPath string
+	Port        int
+	TLSCert     string
+	TLSKey      string
+	TokensPath  string
+	Subnet      string // e.g. "10.0.0.0/24"
+	ServerIP    string // e.g. "10.0.0.1"
+	MetricsAddr string // e.g. "localhost:9100" — empty to disable
+	ACLPath     string // path to acl.yaml — empty to disable
+	APIKey      string // bearer key for /tooljet/* — empty to disable
+}
+
+func (cfg *Config) applyDefaults() {
+	if cfg.Subnet == "" {
+		cfg.Subnet = "10.0.0.0/24"
+	}
+	if cfg.ServerIP == "" {
+		cfg.ServerIP = "10.0.0.1"
+	}
+	if cfg.MetricsAddr == "" {
+		cfg.MetricsAddr = DefaultMetricsAddr
+	}
+}
+
+// baseIPFromSubnet derives "10.0.0" from "10.0.0.0/24".
+func baseIPFromSubnet(subnet string) (string, error) {
+	_, ipNet, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return "", fmt.Errorf("invalid subnet %q: %w", subnet, err)
+	}
+	ip := ipNet.IP.String()
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return "", fmt.Errorf("unexpected IP format: %s", ip)
+	}
+	return strings.Join(parts[:3], "."), nil
 }
 
 // New creates a Server using the given config.
 func New(cfg *Config) (*Server, error) {
+	cfg.applyDefaults()
+
+	baseIP, err := baseIPFromSubnet(cfg.Subnet)
+	if err != nil {
+		return nil, err
+	}
+
 	tm, err := auth.NewManager(cfg.TokensPath)
 	if err != nil {
 		return nil, fmt.Errorf("load tokens: %w", err)
 	}
+
+	var aclEngine *acl.Engine
+	if cfg.ACLPath != "" {
+		aclEngine, err = acl.Load(cfg.ACLPath)
+		if err != nil {
+			log.Printf("warning: load ACL %s: %v (allowing all traffic)", cfg.ACLPath, err)
+		}
+	}
+
 	return &Server{
 		cfg:     cfg,
 		tokens:  tm,
-		clients: newClientRegistry(defaultBaseIP),
+		clients: newClientRegistry(baseIP),
 		limiter: auth.NewRateLimiter(),
+		acl:     aclEngine,
+		metrics: newMetrics(),
 		done:    make(chan struct{}),
 	}, nil
 }
@@ -72,15 +120,21 @@ func (s *Server) Start() error {
 		log.Printf("warning: could not enable IP forwarding: %v", err)
 	}
 
+	serverTUNAddr := s.cfg.ServerIP + "/24"
 	var err error
-	s.tun, err = tunnel.NewTUN(defaultServerIP)
+	s.tun, err = tunnel.NewTUN(serverTUNAddr)
 	if err != nil {
 		return fmt.Errorf("create server tun: %w", err)
 	}
-	log.Printf("TUN interface %s up at %s", s.tun.Name(), defaultServerIP)
+	log.Printf("TUN interface %s up at %s", s.tun.Name(), serverTUNAddr)
 
-	// Start reading from TUN and routing to clients.
 	go s.routeFromTUN()
+	go s.startReaper()
+	go s.startControlSocket()
+
+	if s.cfg.MetricsAddr != "" {
+		go s.startHTTPAPI()
+	}
 
 	cert, err := tls.LoadX509KeyPair(s.cfg.TLSCert, s.cfg.TLSKey)
 	if err != nil {
@@ -97,22 +151,28 @@ func (s *Server) Start() error {
 	}
 	log.Printf("auth-vpn server listening on :%d (TLS)", s.cfg.Port)
 
-	// Signal handler — close listener on SIGINT/SIGTERM.
+	// Signal handler — shutdown on SIGINT/SIGTERM, reload ACL on SIGHUP.
 	go func() {
-		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-		select {
-		case <-sig:
-			log.Println("shutting down...")
-			s.Shutdown()
-			ln.Close()
-		case <-s.done:
-			ln.Close()
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		for sig := range sigs {
+			switch sig {
+			case syscall.SIGHUP:
+				if s.acl != nil {
+					if err := s.acl.Reload(); err != nil {
+						log.Printf("ACL reload: %v", err)
+					} else {
+						log.Println("ACL reloaded")
+					}
+				}
+			default:
+				log.Println("shutting down...")
+				s.Shutdown()
+				ln.Close()
+				return
+			}
 		}
 	}()
-
-	// Control socket for CLI queries (server clients).
-	go s.startControlSocket()
 
 	for {
 		conn, err := ln.Accept()
@@ -135,8 +195,11 @@ func (s *Server) Start() error {
 // Tokens returns the token manager (for CLI token sub-commands).
 func (s *Server) Tokens() *auth.Manager { return s.tokens }
 
-// Clients returns a snapshot of connected clients.
+// ConnectedClients returns a snapshot of connected clients.
 func (s *Server) ConnectedClients() []clientInfo { return s.clients.Snapshot() }
+
+// TokenManager exposes the auth.Manager for use by the CLI.
+func (s *Server) TokenManager() *auth.Manager { return s.tokens }
 
 // handleConn authenticates one client connection and starts forwarding.
 func (s *Server) handleConn(conn net.Conn) {
@@ -170,12 +233,22 @@ func (s *Server) handleConn(conn net.Conn) {
 	tok, err := s.tokens.Validate(req.Token)
 	if err != nil {
 		s.limiter.RecordFailure(remoteIP)
+		s.metrics.IncAuthFailure()
 		log.Printf("auth failed from %s: %v", remoteIP, err)
 		_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
 			protocol.Encode(protocol.AuthFailResponse{Reason: err.Error()}))
 		return
 	}
 	s.limiter.Reset(remoteIP)
+
+	// P0-A: prevent concurrent use of the same token.
+	if !s.tokens.TryClaim(req.Token) {
+		log.Printf("token %q already in use, rejecting %s", tok.Name, remoteIP)
+		_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
+			protocol.Encode(protocol.AuthFailResponse{Reason: "token already in use"}))
+		return
+	}
+	defer s.tokens.Unclaim(req.Token)
 
 	client, err := s.clients.Assign(tok.Name, conn)
 	if err != nil {
@@ -186,10 +259,13 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 	defer s.clients.Remove(client.ip)
 
+	s.metrics.IncConnected()
+	defer s.metrics.DecConnected()
+
 	resp := protocol.AuthOKResponse{
 		ClientIP: client.ip,
-		ServerIP: "10.0.0.1",
-		Subnet:   defaultSubnet,
+		ServerIP: s.cfg.ServerIP,
+		Subnet:   s.cfg.Subnet,
 	}
 	if err := tunnel.WriteFrame(conn, protocol.TypeAuthOK, protocol.Encode(resp)); err != nil {
 		log.Printf("send AUTH_OK to %s: %v", tok.Name, err)
@@ -205,6 +281,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		if err := tunnel.WriteFrame(conn, protocol.TypeIPPacket, pkt); err != nil {
 			break
 		}
+		client.bytesOut.Add(int64(len(pkt)))
+		s.metrics.AddBytesOut(len(pkt))
 	}
 	log.Printf("client disconnected: %s", tok.Name)
 }
@@ -217,12 +295,15 @@ func (s *Server) forwardToTUN(c *connectedClient) {
 		if err != nil {
 			return
 		}
+		c.Touch() // P0-B: update last-seen timestamp
 		switch msgType {
 		case protocol.TypeIPPacket:
 			if _, err := s.tun.Write(payload); err != nil {
 				log.Printf("write to TUN: %v", err)
 				return
 			}
+			c.bytesIn.Add(int64(len(payload)))
+			s.metrics.AddBytesIn(len(payload))
 		case protocol.TypePing:
 			_ = tunnel.WriteFrame(c.conn, protocol.TypePong, nil)
 		case protocol.TypeDisconnect:
@@ -231,8 +312,8 @@ func (s *Server) forwardToTUN(c *connectedClient) {
 	}
 }
 
-// routeFromTUN reads packets from the TUN interface and fans them to the
-// appropriate client based on destination IP in the IPv4 header.
+// routeFromTUN reads packets from the TUN interface and routes them to the
+// appropriate client based on the destination IP in the IPv4 header.
 func (s *Server) routeFromTUN() {
 	buf := make([]byte, tunBufSize)
 	for {
@@ -251,16 +332,38 @@ func (s *Server) routeFromTUN() {
 		destIP := fmt.Sprintf("%d.%d.%d.%d", pkt[16], pkt[17], pkt[18], pkt[19])
 		client := s.clients.GetByIP(destIP)
 		if client == nil {
-			continue // no client for this IP
+			continue
+		}
+
+		// Step 3: ACL enforcement.
+		if s.acl != nil && !s.acl.Allow(client.name, pkt) {
+			s.metrics.IncDropped()
+			continue
 		}
 
 		select {
 		case client.sendCh <- pkt:
 		default:
-			// client send buffer full — drop packet
+			s.metrics.IncDropped()
 		}
 	}
 }
 
-// TokenManager exposes the auth.Manager for use by the CLI.
-func (s *Server) TokenManager() *auth.Manager { return s.tokens }
+// startReaper periodically closes connections that have gone idle.
+// P0-B: zombie connection cleanup.
+func (s *Server) startReaper() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			stale := s.clients.StaleConns(90 * time.Second)
+			for _, conn := range stale {
+				log.Printf("reaper: closing idle connection from %s", conn.RemoteAddr())
+				conn.Close()
+			}
+		case <-s.done:
+			return
+		}
+	}
+}

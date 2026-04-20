@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,6 +15,19 @@ type connectedClient struct {
 	conn        net.Conn
 	sendCh      chan []byte // packets destined for this client
 	connectedAt time.Time
+	lastSeen    atomic.Int64 // Unix nanoseconds; updated on every received frame
+	bytesIn     atomic.Int64 // bytes forwarded client → TUN
+	bytesOut    atomic.Int64 // bytes forwarded TUN → client
+}
+
+// Touch records the current time as the last-seen timestamp.
+func (c *connectedClient) Touch() {
+	c.lastSeen.Store(time.Now().UnixNano())
+}
+
+// Stale returns true if no frame has been received within d.
+func (c *connectedClient) Stale(d time.Duration) bool {
+	return time.Now().UnixNano()-c.lastSeen.Load() > d.Nanoseconds()
 }
 
 // clientRegistry manages IP assignment and per-client lookup.
@@ -50,6 +64,7 @@ func (r *clientRegistry) Assign(name string, conn net.Conn) (*connectedClient, e
 		sendCh:      make(chan []byte, 256),
 		connectedAt: time.Now().UTC(),
 	}
+	c.lastSeen.Store(time.Now().UnixNano())
 	r.clients[ip] = c
 	return c, nil
 }
@@ -78,13 +93,32 @@ func (r *clientRegistry) Snapshot() []clientInfo {
 			Name:        c.name,
 			IP:          c.ip,
 			ConnectedAt: c.connectedAt,
+			BytesIn:     c.bytesIn.Load(),
+			BytesOut:    c.bytesOut.Load(),
 		})
 	}
 	return out
+}
+
+// StaleConns returns connections that have not received any frame within d.
+// The caller should close each returned connection.
+func (r *clientRegistry) StaleConns(d time.Duration) []net.Conn {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	threshold := time.Now().Add(-d).UnixNano()
+	var conns []net.Conn
+	for _, c := range r.clients {
+		if c.lastSeen.Load() < threshold {
+			conns = append(conns, c.conn)
+		}
+	}
+	return conns
 }
 
 type clientInfo struct {
 	Name        string    `json:"name"`
 	IP          string    `json:"ip"`
 	ConnectedAt time.Time `json:"connected_at"`
+	BytesIn     int64     `json:"bytes_in"`
+	BytesOut    int64     `json:"bytes_out"`
 }

@@ -32,6 +32,7 @@ type Manager struct {
 	mu       sync.RWMutex
 	tokens   []*Token
 	filePath string
+	claimed  sync.Map // key: token hash → struct{}, tracks in-use tokens
 }
 
 // NewManager loads tokens from filePath (creates the file if missing).
@@ -144,6 +145,18 @@ func (m *Manager) Revoke(name string) error {
 	}
 	m.tokens = kept
 	return m.save()
+}
+
+// TryClaim marks a token as actively in use.
+// Returns false if the token is already claimed by another connection.
+func (m *Manager) TryClaim(raw string) bool {
+	_, loaded := m.claimed.LoadOrStore(hashToken(raw), struct{}{})
+	return !loaded
+}
+
+// Unclaim releases a token so it can be used again.
+func (m *Manager) Unclaim(raw string) {
+	m.claimed.Delete(hashToken(raw))
 }
 
 // List returns a snapshot of all tokens.

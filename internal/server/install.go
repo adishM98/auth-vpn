@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -30,12 +31,12 @@ const (
 	SocketFile  = "/var/run/auth-vpn.sock"
 )
 
-// Install sets up the server: TLS cert, initial token, systemd service.
-// Returns the public IP and raw initial token.
-func Install(port int) (publicIP, rawToken string, err error) {
+// Install sets up the server: TLS cert, initial token, server.yaml, acl.yaml, systemd service.
+// Returns the public IP, raw initial token, and generated API key.
+func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 	for _, d := range []string{ConfigDir, TLSDir} {
 		if err = os.MkdirAll(d, 0o700); err != nil {
-			return "", "", fmt.Errorf("mkdir %s: %w", d, err)
+			return "", "", "", fmt.Errorf("mkdir %s: %w", d, err)
 		}
 	}
 
@@ -45,25 +46,66 @@ func Install(port int) (publicIP, rawToken string, err error) {
 	}
 
 	if err = generateSelfSignedCert(publicIP, CertFile, KeyFile); err != nil {
-		return "", "", fmt.Errorf("generate TLS cert: %w", err)
+		return "", "", "", fmt.Errorf("generate TLS cert: %w", err)
 	}
 
 	tm, err := auth.NewManager(TokensFile)
 	if err != nil {
-		return "", "", fmt.Errorf("token manager: %w", err)
+		return "", "", "", fmt.Errorf("token manager: %w", err)
 	}
 	rawToken, err = tm.Add("admin", nil, false)
 	if err != nil {
-		return "", "", fmt.Errorf("create initial token: %w", err)
+		return "", "", "", fmt.Errorf("create initial token: %w", err)
+	}
+
+	apiKey, err = generateAPIKey()
+	if err != nil {
+		return "", "", "", fmt.Errorf("generate API key: %w", err)
+	}
+
+	cfg := DefaultServerConfig(port)
+	cfg.APIKey = apiKey
+	if err = SaveServerConfig(ServerConfigFile, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: write server.yaml: %v\n", err)
+	}
+
+	if err = writeDefaultACL(ACLFile); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: write acl.yaml: %v\n", err)
 	}
 
 	if err = writeSystemdService(port); err != nil {
-		// non-fatal
 		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 		err = nil
 	}
 
-	return publicIP, rawToken, nil
+	return publicIP, rawToken, apiKey, nil
+}
+
+func generateAPIKey() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func writeDefaultACL(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil // don't overwrite existing acl.yaml
+	}
+	content := `# auth-vpn ACL rules
+# default_policy: allow | deny
+default_policy: allow
+
+# rules:
+#   - device: device-name
+#     allow:
+#       - proto: tcp
+#         port: 5432
+#     deny: []
+rules: []
+`
+	return os.WriteFile(path, []byte(content), 0o600)
 }
 
 func detectPublicIP() (string, error) {

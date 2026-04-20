@@ -3,7 +3,7 @@ REPO    = adishM98/auth-vpn
 VERSION ?= 0.1.0
 DIST    = dist
 
-.PHONY: build-linux build-mac-intel build-mac-arm build-all \
+.PHONY: build-linux build-mac-intel build-mac-arm build-windows build-all \
         install install-server deploy deploy-client release clean
 
 # ── build ─────────────────────────────────────────────────────────────────────
@@ -23,7 +23,12 @@ build-mac-arm:
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
 	  go build -ldflags="-s -w" -o $(DIST)/$(BINARY)-darwin-arm64 ./cmd
 
-build-all: build-linux build-mac-intel build-mac-arm
+build-windows:
+	@mkdir -p $(DIST)
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+	  go build -ldflags="-s -w" -o $(DIST)/$(BINARY)-windows-amd64.exe ./cmd
+
+build-all: build-linux build-mac-intel build-mac-arm build-windows
 
 # ── local install (current machine) ──────────────────────────────────────────
 
@@ -76,6 +81,7 @@ release: build-all
 	  $(DIST)/$(BINARY)-linux-amd64 \
 	  $(DIST)/$(BINARY)-darwin-amd64 \
 	  $(DIST)/$(BINARY)-darwin-arm64 \
+	  $(DIST)/$(BINARY)-windows-amd64.exe \
 	  install.sh
 	@echo "✓ Released v$(VERSION) — https://github.com/$(REPO)/releases/tag/v$(VERSION)"
 

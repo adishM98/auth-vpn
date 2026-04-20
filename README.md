@@ -1,6 +1,6 @@
 # auth-vpn
 
-A lightweight, self-hosted VPN tunnel for developers and teams. One binary, one open port — every application on the machine routes through an encrypted TLS tunnel automatically.
+A lightweight, self-hosted VPN tunnel for developers and teams. One binary, one open port — every application on the machine routes through an encrypted TLS 1.3 tunnel automatically.
 
 Built for the common case: a team that needs secure access to services running in Docker containers on a cloud VM, without exposing ports to the internet.
 
@@ -30,6 +30,8 @@ Redis       →  10.0.0.1:6379
 Any service →  10.0.0.1:<port>
 ```
 
+> **Internet speed is not affected.** auth-vpn is a split-tunnel — only traffic to `10.0.0.0/24` goes through the tunnel. All other traffic (browsing, downloads, Slack) uses your normal connection.
+
 ---
 
 ## Quick start
@@ -49,6 +51,9 @@ At the end you'll see:
   ─────────────────────────────────────────────
   Connect with:
     auth-vpn connect 20.98.154.174:7777 --token abc123xyz
+
+  Web dashboard:  http://localhost:9100/ui
+  API key:        <generated-key>
   ─────────────────────────────────────────────
 ```
 
@@ -64,7 +69,17 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 Then connect:
 
 ```bash
+# Interactive (stay in foreground — Ctrl+C to disconnect)
 auth-vpn connect 20.98.154.174:7777 --token abc123xyz
+
+# Background (stays alive after terminal closes)
+auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background
+
+# Check status
+auth-vpn status
+
+# Disconnect
+auth-vpn disconnect
 ```
 
 Save a profile so you never type the token again:
@@ -75,6 +90,7 @@ auth-vpn profile save staging \
   --token abc123xyz
 
 auth-vpn connect staging
+auth-vpn connect staging --background --reconnect  # auto-reconnect on drop
 ```
 
 ---
@@ -84,7 +100,10 @@ auth-vpn connect staging
 - **TLS 1.3** — all traffic is encrypted in transit
 - **Token auth** — SHA-256 hashed tokens stored on server, raw token never persisted
 - **Rate limiting** — 5 failed auth attempts = 60 second IP ban
+- **Concurrent token prevention** — same token cannot be used from two places simultaneously
 - **Token controls** — permanent, expiring, or one-time tokens; revoke any token instantly without restarting the server
+- **ACL rules** — per-device allow/deny lists enforced at the packet level (optional)
+- **API key** — Bearer token required for the Web UI and HTTP API (optional)
 - **Single port** — close all container ports from the internet, only 7777 TCP needs to be open
 
 ---
@@ -98,36 +117,50 @@ auth-vpn connect staging
 sudo auth-vpn server install --port 7777
 
 # Start the server (systemd handles this automatically after install)
-sudo auth-vpn server start --port 7777
+sudo auth-vpn server start
+
+# Start with custom settings (overrides server.yaml)
+sudo auth-vpn server start --subnet 10.8.0.0/24 --server-ip 10.8.0.1
+sudo auth-vpn server start --metrics-addr 0.0.0.0:9100 --api-key <key>
+sudo auth-vpn server start --acl /etc/auth-vpn/acl.yaml
+
+# See who is currently connected
+sudo auth-vpn server clients
 
 # Token management
 auth-vpn server tokens list
 auth-vpn server tokens add --name "dev-alice"
-auth-vpn server tokens add --name "ci-runner" --expires 24h
-auth-vpn server tokens add --name "temp"       --one-time
+auth-vpn server tokens add --name "ci-runner"   --expires 24h
+auth-vpn server tokens add --name "temp"        --one-time
 auth-vpn server tokens revoke --name "dev-alice"
 ```
 
 ### Client
 
 ```bash
-# Connect with a token
+# Connect interactively (Ctrl+C to disconnect)
 auth-vpn connect 20.98.154.174:7777 --token <token>
 
 # Connect using a saved profile
 auth-vpn connect staging
 
-# Connect in background (for VMs, CI)
+# Background mode (survives terminal close)
 auth-vpn connect staging --background
 
-# Connect in CI — block until tunnel is verified before returning
+# Background + auto-reconnect on unexpected drop (exponential backoff, max 2 min)
+auth-vpn connect staging --background --reconnect
+
+# Wait until server is reachable before connecting (useful in CI)
 auth-vpn connect staging --background --wait
 
-# Disconnect
-auth-vpn disconnect
+# Skip TLS verification (dev/local testing only)
+auth-vpn connect staging --insecure
 
-# Status
+# Check tunnel status
 auth-vpn status
+
+# Disconnect background tunnel
+auth-vpn disconnect
 ```
 
 ### Profiles
@@ -135,6 +168,89 @@ auth-vpn status
 ```bash
 auth-vpn profile save staging --host 20.98.154.174:7777 --token <token>
 auth-vpn profile list
+```
+
+---
+
+## Web dashboard
+
+After `server install`, a dashboard is available at `http://localhost:9100/ui` on the server:
+
+- Live stats: active clients, total connections, auth failures, bytes in/out, uptime
+- Connected clients table with tunnel IP and connection time
+- Token management: create and revoke tokens from the browser
+
+To access the dashboard remotely, use an SSH tunnel:
+
+```bash
+ssh -L 9100:localhost:9100 user@<vm-ip>
+# then open http://localhost:9100/ui in your browser
+```
+
+---
+
+## Prometheus metrics
+
+```bash
+curl http://localhost:9100/metrics
+```
+
+```
+auth_vpn_uptime_seconds
+auth_vpn_active_connections
+auth_vpn_connections_total
+auth_vpn_auth_failures_total
+auth_vpn_bytes_in_total
+auth_vpn_bytes_out_total
+auth_vpn_dropped_packets_total
+```
+
+---
+
+## ACL rules
+
+Create `/etc/auth-vpn/acl.yaml` to restrict what each device can reach:
+
+```yaml
+default_policy: deny
+
+rules:
+  - device: dev-alice
+    allow:
+      - proto: tcp
+        port: 5432   # PostgreSQL only
+      - proto: tcp
+        port: 6379   # Redis
+
+  - device: ci-runner
+    allow:
+      - proto: tcp
+        port: 5432
+```
+
+Reload without restarting the server:
+
+```bash
+sudo kill -SIGHUP <server-pid>
+# or: sudo systemctl kill -s HUP auth-vpn
+```
+
+---
+
+## ToolJet datasource integration
+
+The server exposes a ToolJet-compatible HTTP API at `http://localhost:9100/tooljet/`:
+
+```
+GET /tooljet/status          — server health + active client count
+GET /tooljet/clients         — list of connected devices
+GET /tooljet/probe?host=IP&port=N  — verify a host:port is reachable via VPN
+```
+
+Protect with an API key (set in `server.yaml` or `--api-key` flag):
+
+```
+Authorization: Bearer <api-key>
 ```
 
 ---
@@ -183,7 +299,6 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 ### Deploy from your Mac (VM needs nothing)
 
 ```bash
-# Clone the repo on your Mac
 git clone https://github.com/adishM98/auth-vpn
 cd auth-vpn
 
@@ -218,7 +333,7 @@ services:
   postgres:
     image: postgres:16
     ports:
-      - "5432:5432"       # correct — accessible through tunnel
+      - "5432:5432"       # ✅ accessible through tunnel
       # not: "127.0.0.1:5432:5432"  — tunnel can't reach this
 ```
 
@@ -258,7 +373,8 @@ go build -o auth-vpn ./cmd
 make build-linux        # Linux amd64
 make build-mac-arm      # macOS Apple Silicon
 make build-mac-intel    # macOS Intel
-make build-all          # all three
+make build-windows      # Windows amd64 (.exe)
+make build-all          # all four platforms
 ```
 
 ---
@@ -273,24 +389,22 @@ make build-all          # all three
 │  │  auth-vpn    │    │  Docker containers│  │
 │  │  server      │    │                   │  │
 │  │  :7777 (TLS) │    │  postgres :5432   │  │
-│  │              │    │  mysql    :3306   │  │
-│  │  TUN: tun0   │    │  redis    :6379   │  │
-│  │  10.0.0.1/24 │    │  ...              │  │
-│  └──────────────┘    └───────────────────┘  │
-│         │                                   │
-└─────────┼───────────────────────────────────┘
+│  │  :9100 (HTTP)│    │  mysql    :3306   │  │
+│  │              │    │  redis    :6379   │  │
+│  │  TUN: tun0   │    │  ...              │  │
+│  │  10.0.0.1/24 │    └───────────────────┘  │
+│  └──────────────┘                           │
+└─────────────────────────────────────────────┘
           │  TLS 1.3 / port 7777
           │
    ┌──────┴──────────────────────────────┐
-   │                                     │
    │  Client machine                     │
    │                                     │
    │  TUN: utun3 (macOS) / tun0 (Linux)  │
    │  IP: 10.0.0.2                       │
    │                                     │
    │  Route: 10.0.0.0/24 → TUN          │
-   │  (all apps reach 10.0.0.1:* for free│
-   │   — no per-app config)              │
+   │  Everything else → normal internet  │
    └─────────────────────────────────────┘
 ```
 
@@ -298,7 +412,7 @@ make build-all          # all three
 
 ```
 App on client writes to 10.0.0.1:5432
-  → OS routes packet to TUN interface
+  → OS routes packet to TUN (split-tunnel — only VPN subnet)
     → auth-vpn client reads from TUN
       → wraps in length-prefixed frame
         → sends over TLS connection to server
@@ -325,7 +439,8 @@ Types: Auth(0x01) AuthOK(0x02) AuthFail(0x03) IPPacket(0x04)
 | `make build-linux` | Build Linux amd64 → `dist/` |
 | `make build-mac-arm` | Build macOS arm64 → `dist/` |
 | `make build-mac-intel` | Build macOS amd64 → `dist/` |
-| `make build-all` | All three platforms |
+| `make build-windows` | Build Windows amd64 → `dist/` |
+| `make build-all` | All four platforms |
 | `make install` | Build + install on this machine (client) |
 | `make install-server` | Build + install + configure server on this machine |
 | `make deploy VM=user@host` | Build + push + configure server on remote VM |

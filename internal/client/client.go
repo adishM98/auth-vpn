@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/adishM98/auth-vpn/internal/tunnel"
@@ -189,7 +188,7 @@ func Connect(opts Options) error {
 
 	// Handle OS signals for graceful disconnect.
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sig, shutdownSignals...)
 	defer signal.Stop(sig)
 
 	select {

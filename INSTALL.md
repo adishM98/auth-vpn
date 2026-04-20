@@ -1,24 +1,25 @@
-# tj-vpn — Installation Guide
+# auth-vpn — Installation Guide
 
 A lightweight self-hosted VPN tunnel. Install once, connect from anywhere —
 every application on the machine routes through the tunnel automatically.
+
+> **Internet speed is not affected.** auth-vpn is a split-tunnel VPN — only traffic to `10.0.0.0/24` goes through the tunnel. All other traffic (browsing, downloads, Slack) uses your normal connection unchanged.
 
 ---
 
 ## How it works
 
 ```
-VM (any containers)  ← tj-vpn server (one port open: 7777)
+VM (any containers)  ← auth-vpn server (one port open: 7777)
      │
-     │  encrypted TLS tunnel
+     │  encrypted TLS 1.3 tunnel
      │
-     ├── Dev laptop       (tj-vpn client)
-     ├── QA laptop        (tj-vpn client)
-     └── ToolJet VM       (tj-vpn client)
+     ├── Dev laptop       (auth-vpn client)
+     ├── QA laptop        (auth-vpn client)
+     └── ToolJet VM       (auth-vpn client)
 ```
 
-tj-vpn tunnels **all traffic** to the VM — not just one service.
-Every container running on the VM is reachable through the same tunnel:
+Every container running on the VM is reachable through the tunnel:
 
 ```
 PostgreSQL  → 10.0.0.1:5432
@@ -28,8 +29,7 @@ Redis       → 10.0.0.1:6379
 Any service → 10.0.0.1:<port>
 ```
 
-No extra config per service — if the container has a port mapping on the VM,
-it is automatically reachable through the tunnel once connected.
+No extra config per service — if the container has a port mapping, it is automatically reachable through the tunnel once connected.
 
 ---
 
@@ -38,31 +38,26 @@ it is automatically reachable through the tunnel once connected.
 ### VM with containers (server, run once per VM)
 
 ```bash
-curl -fsSL https://github.com/tooljet/tj-vpn/releases/latest/download/install.sh \
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | sudo bash -s -- --server
 ```
-
-No Go, no Git, nothing to install first. The script downloads the right binary
-for the machine, installs it, generates a TLS cert, and starts the systemd service.
 
 ### Dev/QA laptop or another VM (client)
 
 ```bash
-curl -fsSL https://github.com/tooljet/tj-vpn/releases/latest/download/install.sh \
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | bash
 ```
 
 Then connect:
 
 ```bash
-tj-vpn connect 20.98.154.174:7777 --token abc123xyz
+auth-vpn connect 20.98.154.174:7777 --token abc123xyz
 ```
 
 ---
 
 ## How the installer works
-
-The installer detects the situation and takes the right path:
 
 ```
 curl ... | bash
@@ -78,7 +73,7 @@ curl ... | bash
         └── Linux + no Go → auto-install Go, then build
 ```
 
-You never need Go, Git, or anything else pre-installed — the script handles it.
+You never need Go, Git, or anything pre-installed — the script handles it.
 
 ---
 
@@ -90,55 +85,46 @@ Generates TLS cert, creates initial token, registers systemd service.
 ### Option A — Single curl command (recommended, VM needs nothing)
 
 ```bash
-curl -fsSL https://github.com/tooljet/tj-vpn/releases/latest/download/install.sh \
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | sudo bash -s -- --server
 
 # Custom port:
-curl -fsSL https://github.com/tooljet/tj-vpn/releases/latest/download/install.sh \
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | sudo bash -s -- --server --port=8888
 ```
 
 ### Option B — Deploy from your Mac (VM needs nothing)
 
-Best for controlled rollouts — DevOps builds locally and pushes everything.
-
 ```bash
-# From inside the tj-vpn repo on your Mac:
+# From inside the auth-vpn repo on your Mac:
 make deploy VM=azureuser@<vm-public-ip>
 
-# With a custom port:
-make deploy VM=azureuser@<vm-public-ip> PORT=8888
-
-# With a specific SSH key:
-make deploy VM=azureuser@<vm-public-ip> SSH_KEY=~/.ssh/my_key
+# With a custom port or SSH key:
+make deploy VM=azureuser@<vm-public-ip> PORT=8888 SSH_KEY=~/.ssh/my_key
 ```
-
-This automatically:
-1. Builds the Linux binary on your Mac
-2. Copies binary + `install.sh` to the VM
-3. SSHs in and runs `sudo ./install.sh --server`
 
 ### Option C — Clone and install on the VM directly
 
 ```bash
 ssh azureuser@<vm-public-ip>
-git clone https://github.com/tooljet/tj-vpn
-cd tj-vpn
+git clone https://github.com/adishM98/auth-vpn
+cd auth-vpn
 sudo ./install.sh --server
 ```
 
 ### After the server is installed
 
-You will see the connection string printed:
-
 ```
-  ────────────────────────────────────────────
+  ─────────────────────────────────────────────
   Connect with:
-    tj-vpn connect 20.98.154.174:7777 --token abc123xyz
-  ────────────────────────────────────────────
+    auth-vpn connect 20.98.154.174:7777 --token abc123xyz
+
+  Web dashboard:  http://localhost:9100/ui
+  API key:        <generated-key>
+  ─────────────────────────────────────────────
 ```
 
-**Save that token — share it with your team.**
+**Save the token — share it with your team.**
 
 Close all container ports from the public internet — only port **7777 (TCP)** needs to be open:
 
@@ -148,87 +134,96 @@ Azure Portal → VM → Networking → Inbound port rules
   → Keep or add rule for port 7777 TCP only
 ```
 
-All container ports are now only reachable through the tunnel.
-
 ---
 
-## Part 2 — Dev / QA laptops (macOS)
+## Part 2 — Dev / QA laptops (macOS / Linux / Windows)
 
-### Option A — Single curl command (recommended)
+### Option A — Single curl command (macOS / Linux)
 
 ```bash
-curl -fsSL https://github.com/tooljet/tj-vpn/releases/latest/download/install.sh \
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | bash
 ```
 
-### Option B — Clone and install
+### Option B — Windows
 
-```bash
-git clone https://github.com/tooljet/tj-vpn
-cd tj-vpn
-./install.sh
-```
-
-### Option C — DevOps deploys for the team
-
-```bash
-# From Mac, inside the tj-vpn repo:
-make deploy-client VM=username@<laptop-ip>
-```
+Download `auth-vpn-windows-amd64.exe` from the [latest release](https://github.com/adishM98/auth-vpn/releases/latest), rename it to `auth-vpn.exe`, and add it to your `PATH`.
 
 ### Connect to the server
 
 ```bash
-tj-vpn connect 20.98.154.174:7777 --token abc123xyz
+# Interactive — Ctrl+C or auth-vpn disconnect to stop
+auth-vpn connect 20.98.154.174:7777 --token abc123xyz
+
+# Background — survives terminal close, no speed impact on other traffic
+auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background
+
+# Background + auto-reconnect on unexpected drop
+auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
 ```
 
 **Save a profile so you never type the token again:**
 
 ```bash
-tj-vpn profile save staging \
+auth-vpn profile save staging \
   --host 20.98.154.174:7777 \
   --token abc123xyz
 
 # From now on:
-tj-vpn connect staging
+auth-vpn connect staging
+auth-vpn connect staging --background --reconnect
+```
 
-# Disconnect when done:
-tj-vpn disconnect
+### Stopping the tunnel
+
+```bash
+# If running in background:
+auth-vpn disconnect
+
+# If running in foreground (terminal still open):
+Ctrl+C
+
+# If installed as a systemd service (Linux VMs):
+sudo systemctl stop auth-vpn
+```
+
+### Check tunnel status
+
+```bash
+auth-vpn status
+```
+
+Output when connected:
+
+```
+status: connected
+  PID          : 12345
+  Server       : 20.98.154.174:7777
+  Tunnel IP    : 10.0.0.2
+  Server IP    : 10.0.0.1
+  Connected at : 2025-01-15 09:30:00
+  Uptime       : 2h15m30s
 ```
 
 ---
 
 ## Part 3 — Other VMs (ToolJet VM, test VMs, etc.)
 
-### Option A — Single curl command (recommended)
-
 ```bash
-curl -fsSL https://github.com/tooljet/tj-vpn/releases/latest/download/install.sh \
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | bash
 
-tj-vpn connect 20.98.154.174:7777 --token abc123xyz --background
+# Connect in background — stays alive after SSH session ends
+auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
 ```
 
-### Option B — Deploy from Mac (VM needs nothing)
+Deploy from Mac (VM needs nothing):
 
 ```bash
 make deploy-client VM=azureuser@<other-vm-ip>
-
-# SSH in and connect:
 ssh azureuser@<other-vm-ip>
-tj-vpn connect 20.98.154.174:7777 --token abc123xyz --background
+auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
 ```
-
-### Option C — Clone and install on the VM directly
-
-```bash
-ssh azureuser@<other-vm-ip>
-git clone https://github.com/tooljet/tj-vpn && cd tj-vpn
-sudo ./install.sh   # auto-installs Go if missing
-tj-vpn connect 20.98.154.174:7777 --token abc123xyz --background
-```
-
-`--background` keeps the tunnel alive after the SSH session ends.
 
 ---
 
@@ -236,19 +231,85 @@ tj-vpn connect 20.98.154.174:7777 --token abc123xyz --background
 
 ```bash
 # List all tokens and expiry dates
-tj-vpn server tokens list
+auth-vpn server tokens list
 
 # Add permanent token for a dev/QA member
-tj-vpn server tokens add --name "dev-john"
+auth-vpn server tokens add --name "dev-john"
 
 # Add short-lived token for CI
-tj-vpn server tokens add --name "ci-runner" --expires 24h
+auth-vpn server tokens add --name "ci-runner" --expires 24h
 
 # Add one-time token (revokes itself after first connection)
-tj-vpn server tokens add --name "temp-access" --one-time
+auth-vpn server tokens add --name "temp-access" --one-time
 
 # Revoke access immediately — no server restart needed
-tj-vpn server tokens revoke --name "dev-john"
+auth-vpn server tokens revoke --name "dev-john"
+```
+
+Tokens can also be created and revoked from the **Web dashboard** at `http://localhost:9100/ui`.
+
+---
+
+## Part 5 — Web dashboard
+
+The server exposes a live dashboard at `http://localhost:9100/ui`:
+
+- Active client count, uptime, bytes transferred
+- Connected clients table (name, tunnel IP, connected at)
+- Token management — create/revoke from the browser
+
+**Access remotely via SSH tunnel:**
+
+```bash
+ssh -L 9100:localhost:9100 user@<vm-ip>
+# then open: http://localhost:9100/ui
+```
+
+---
+
+## Part 6 — ACL rules (optional, restrict per device)
+
+Edit `/etc/auth-vpn/acl.yaml`:
+
+```yaml
+default_policy: deny
+
+rules:
+  - device: dev-alice
+    allow:
+      - proto: tcp
+        port: 5432   # PostgreSQL
+
+  - device: ci-runner
+    allow:
+      - proto: tcp
+        port: 5432
+      - proto: tcp
+        port: 6379   # Redis
+```
+
+Reload without restarting:
+
+```bash
+sudo kill -SIGHUP $(pgrep auth-vpn)
+# or
+sudo systemctl kill -s HUP auth-vpn
+```
+
+---
+
+## Part 7 — Server clients list (run on the server VM)
+
+See who is currently connected:
+
+```bash
+sudo auth-vpn server clients
+```
+
+```
+NAME                  TUNNEL IP        CONNECTED AT
+dev-alice             10.0.0.2         2025-01-15 09:30:00
+ci-runner             10.0.0.3         2025-01-15 10:00:00
 ```
 
 ---
@@ -257,40 +318,17 @@ tj-vpn server tokens revoke --name "dev-john"
 
 ```bash
 # Is the tunnel up?
-tj-vpn status
+auth-vpn status
 
 # Ping the VM through the tunnel
 ping 10.0.0.1
 
-# Reach any container by port — examples:
+# Reach any container by port:
 psql    -h 10.0.0.1 -p 5432                    # PostgreSQL
 mysql   -h 10.0.0.1 -P 3306 -u root -p         # MySQL
 mongosh    10.0.0.1:27017                       # MongoDB
 redis-cli -h 10.0.0.1 -p 6379                  # Redis
 curl       http://10.0.0.1:8080/health          # any HTTP service
-
-# Disconnect
-tj-vpn disconnect
-```
-
----
-
-## Pin to a specific version
-
-```bash
-# Server
-curl -fsSL https://github.com/tooljet/tj-vpn/releases/latest/download/install.sh \
-  | sudo bash -s -- --server --version=v1.2.3
-
-# Client
-curl -fsSL https://github.com/tooljet/tj-vpn/releases/latest/download/install.sh \
-  | bash -s -- --version=v1.2.3
-```
-
-Or set the environment variable:
-
-```bash
-VERSION=v1.2.3 ./install.sh
 ```
 
 ---
@@ -306,27 +344,31 @@ sudo ./install.sh --server   # server
 
 **`Cannot write to /usr/local/bin`**
 ```bash
-sudo ./install.sh   # always run with sudo on Linux
+sudo ./install.sh
 ```
 
 **Download fails (no internet / firewall)**
 ```bash
-# Download the binary manually on a machine with internet:
-curl -LO https://github.com/tooljet/tj-vpn/releases/latest/download/tj-vpn-linux-amd64
-# Copy it to the target machine and run install.sh — it will detect the local binary
+# Download the binary manually on a machine with internet access:
+curl -LO https://github.com/adishM98/auth-vpn/releases/latest/download/auth-vpn-linux-amd64
+# Copy it to the target machine — install.sh will detect and use it directly
 ```
 
 **Tunnel connects but can't reach a container**
 - Check the container is running: `docker ps`
-- Check port mapping includes `0.0.0.0` not `127.0.0.1`: `docker ps --format "{{.Ports}}"`
-- If it shows `127.0.0.1:<port>`, update `docker-compose.yml` ports to `"<port>:<port>"` (no localhost prefix)
-- Example fix in `docker-compose.yml`:
-  ```yaml
-  ports:
-    - "5432:5432"    # ✅ accessible through tunnel
-    # not:
-    - "127.0.0.1:5432:5432"  # ❌ only localhost, tunnel can't reach it
-  ```
+- Check port mapping uses `0.0.0.0`: `docker ps --format "{{.Ports}}"`
+- If it shows `127.0.0.1:<port>`, update your compose file:
+
+```yaml
+ports:
+  - "5432:5432"           # ✅ accessible through tunnel
+  # not:
+  - "127.0.0.1:5432:5432" # ❌ only localhost, tunnel can't reach it
+```
+
+**Internet is slow while tunnel is running**
+
+It shouldn't be — auth-vpn is a split-tunnel. Only traffic to `10.0.0.0/24` goes through the VPN. Run `netstat -rn` to confirm only the VPN subnet is routed through the TUN interface and your default route (`0.0.0.0`) is unchanged.
 
 ---
 
@@ -340,7 +382,7 @@ make release
 make release VERSION=1.2.3
 ```
 
-Requires the `gh` CLI (`brew install gh`) and `gh auth login` run once.
+Requires the `gh` CLI (`brew install gh`) and `gh auth login` once.
 After `make release`, the curl one-liners above automatically pick up the new version.
 
 ---
@@ -352,12 +394,13 @@ After `make release`, the curl one-liners above automatically pick up the new ve
 | `make build-linux` | Build Linux amd64 binary → `dist/` |
 | `make build-mac-arm` | Build macOS arm64 binary → `dist/` |
 | `make build-mac-intel` | Build macOS amd64 binary → `dist/` |
-| `make build-all` | Build all three platforms |
+| `make build-windows` | Build Windows amd64 `.exe` → `dist/` |
+| `make build-all` | Build all four platforms |
 | `make install` | Build + install on this machine (client) |
 | `make install-server` | Build + install + configure server on this machine |
 | `make deploy VM=user@host` | Build + deploy + configure **server** on remote VM |
 | `make deploy-client VM=user@host` | Build + deploy **client** on remote VM |
-| `make release` | Build all + create GitHub release (uploads binaries + install.sh) |
+| `make release` | Build all + create GitHub release |
 | `make clean` | Remove `dist/` |
 
 ---
@@ -369,6 +412,8 @@ After `make release`, the curl one-liners above automatically pick up the new ve
 | DevOps | `make release` | Shipping a new version |
 | DevOps | `curl ... \| sudo bash -s -- --server` | Once per VM that has containers |
 | DevOps | `make deploy-client VM=user@host` | Once per additional VM (alternative) |
-| Dev / QA | `curl ... \| bash` then `tj-vpn connect staging` | Once per laptop |
-| DevOps | `tj-vpn server tokens add --name x` | Onboarding new team member |
-| DevOps | `tj-vpn server tokens revoke --name x` | Offboarding |
+| Dev / QA | `curl ... \| bash` then `auth-vpn connect staging` | Once per laptop |
+| Dev / QA | `auth-vpn disconnect` | When done for the day |
+| DevOps | `auth-vpn server tokens add --name x` | Onboarding new team member |
+| DevOps | `auth-vpn server tokens revoke --name x` | Offboarding |
+| DevOps | `sudo auth-vpn server clients` | Check who is connected |

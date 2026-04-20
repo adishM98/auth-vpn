@@ -52,7 +52,7 @@ func serverInstallCmd() *cobra.Command {
 			fmt.Println("Installing auth-vpn server...")
 			fmt.Print("  ✓ Detecting public IP... ")
 
-			publicIP, rawToken, err := server.Install(port)
+			publicIP, rawToken, apiKey, err := server.Install(port)
 			if err != nil {
 				return err
 			}
@@ -60,6 +60,8 @@ func serverInstallCmd() *cobra.Command {
 			fmt.Println(publicIP)
 			fmt.Println("  ✓ TLS certificate generated")
 			fmt.Println("  ✓ Initial token created")
+			fmt.Println("  ✓ Server config written to", server.ServerConfigFile)
+			fmt.Println("  ✓ ACL config written to", server.ACLFile)
 			fmt.Println("  ✓ Systemd service written")
 			fmt.Println()
 			fmt.Println("  Run:  sudo systemctl enable --now auth-vpn")
@@ -67,6 +69,9 @@ func serverInstallCmd() *cobra.Command {
 			fmt.Println("  ─────────────────────────────────────────────")
 			fmt.Printf("  Connect with:\n")
 			fmt.Printf("    auth-vpn connect %s:%d --token %s\n", publicIP, port, rawToken)
+			fmt.Println()
+			fmt.Printf("  Web dashboard:  http://localhost:9100/ui\n")
+			fmt.Printf("  API key:        %s\n", apiKey)
 			fmt.Println("  ─────────────────────────────────────────────")
 			return nil
 		},
@@ -77,16 +82,57 @@ func serverInstallCmd() *cobra.Command {
 
 func serverStartCmd() *cobra.Command {
 	var port int
+	var subnet, serverIP, metricsAddr, aclPath, apiKey string
+
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the auth-vpn server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			srv, err := server.New(&server.Config{
+			// Load server.yaml if it exists; flags override file values.
+			cfg := server.Config{
 				Port:       port,
 				TLSCert:    server.CertFile,
 				TLSKey:     server.KeyFile,
 				TokensPath: server.TokensFile,
-			})
+			}
+			if sc, err := server.LoadServerConfig(server.ServerConfigFile); err == nil {
+				if !cmd.Flags().Changed("port") && sc.Port != 0 {
+					cfg.Port = sc.Port
+				}
+				if !cmd.Flags().Changed("subnet") {
+					cfg.Subnet = sc.Subnet
+				}
+				if !cmd.Flags().Changed("server-ip") {
+					cfg.ServerIP = sc.ServerIP
+				}
+				if !cmd.Flags().Changed("metrics-addr") {
+					cfg.MetricsAddr = sc.MetricsAddr
+				}
+				if !cmd.Flags().Changed("acl") {
+					cfg.ACLPath = sc.ACLPath
+				}
+				if !cmd.Flags().Changed("api-key") {
+					cfg.APIKey = sc.APIKey
+				}
+			}
+			// Apply explicit flag overrides.
+			if cmd.Flags().Changed("subnet") {
+				cfg.Subnet = subnet
+			}
+			if cmd.Flags().Changed("server-ip") {
+				cfg.ServerIP = serverIP
+			}
+			if cmd.Flags().Changed("metrics-addr") {
+				cfg.MetricsAddr = metricsAddr
+			}
+			if cmd.Flags().Changed("acl") {
+				cfg.ACLPath = aclPath
+			}
+			if cmd.Flags().Changed("api-key") {
+				cfg.APIKey = apiKey
+			}
+
+			srv, err := server.New(&cfg)
 			if err != nil {
 				return err
 			}
@@ -94,6 +140,11 @@ func serverStartCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVarP(&port, "port", "p", 7777, "Port to listen on")
+	cmd.Flags().StringVar(&subnet, "subnet", "", "VPN subnet CIDR (default 10.0.0.0/24)")
+	cmd.Flags().StringVar(&serverIP, "server-ip", "", "Server TUN IP (default 10.0.0.1)")
+	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", "", "Metrics/API listen address (default localhost:9100)")
+	cmd.Flags().StringVar(&aclPath, "acl", "", "Path to acl.yaml (empty = allow all)")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "Bearer key for /api/* and /tooljet/* (empty = no auth)")
 	return cmd
 }
 
