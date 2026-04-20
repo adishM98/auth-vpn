@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 )
 
 // connectedClient holds state for one authenticated tunnel client.
 type connectedClient struct {
-	name   string
-	ip     string       // assigned tunnel IP, e.g. "10.0.0.2"
-	conn   net.Conn
-	sendCh chan []byte   // packets destined for this client
+	name        string
+	ip          string     // assigned tunnel IP, e.g. "10.0.0.2"
+	conn        net.Conn
+	sendCh      chan []byte // packets destined for this client
+	connectedAt time.Time
 }
 
 // clientRegistry manages IP assignment and per-client lookup.
@@ -42,10 +44,11 @@ func (r *clientRegistry) Assign(name string, conn net.Conn) (*connectedClient, e
 	r.nextIP++
 
 	c := &connectedClient{
-		name:   name,
-		ip:     ip,
-		conn:   conn,
-		sendCh: make(chan []byte, 256),
+		name:        name,
+		ip:          ip,
+		conn:        conn,
+		sendCh:      make(chan []byte, 256),
+		connectedAt: time.Now().UTC(),
 	}
 	r.clients[ip] = c
 	return c, nil
@@ -71,12 +74,17 @@ func (r *clientRegistry) Snapshot() []clientInfo {
 	defer r.mu.RUnlock()
 	var out []clientInfo
 	for _, c := range r.clients {
-		out = append(out, clientInfo{Name: c.name, IP: c.ip})
+		out = append(out, clientInfo{
+			Name:        c.name,
+			IP:          c.ip,
+			ConnectedAt: c.connectedAt,
+		})
 	}
 	return out
 }
 
 type clientInfo struct {
-	Name string
-	IP   string
+	Name        string    `json:"name"`
+	IP          string    `json:"ip"`
+	ConnectedAt time.Time `json:"connected_at"`
 }

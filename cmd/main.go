@@ -1,8 +1,12 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -24,7 +28,7 @@ func rootCmd() *cobra.Command {
 		Use:   "auth-vpn",
 		Short: "Lightweight self-hosted VPN tunnel for developers and CI/CD",
 	}
-	root.AddCommand(serverCmd(), connectCmd(), statusCmd(), profileCmd())
+	root.AddCommand(serverCmd(), connectCmd(), disconnectCmd(), statusCmd(), profileCmd())
 	return root
 }
 
@@ -205,12 +209,43 @@ func tokensRevokeCmd() *cobra.Command {
 func serverClientsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "clients",
-		Short: "Show currently connected clients (run on server)",
+		Short: "Show currently connected clients (run on the server)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// In production this would query a unix socket / pid file.
-			// For now, direct usage reminder.
-			fmt.Println("Run this on the server where auth-vpn server start is running.")
-			fmt.Println("(Live client list requires a running server process.)")
+			conn, err := net.Dial("unix", server.SocketFile)
+			if err != nil {
+				return fmt.Errorf("cannot connect to server socket (%s): is the server running?\n%w",
+					server.SocketFile, err)
+			}
+			defer conn.Close()
+			conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
+
+			if err := json.NewEncoder(conn).Encode(map[string]string{"cmd": "clients"}); err != nil {
+				return err
+			}
+
+			var resp struct {
+				Clients []struct {
+					Name        string    `json:"name"`
+					IP          string    `json:"ip"`
+					ConnectedAt time.Time `json:"connected_at"`
+				} `json:"clients"`
+				Error string `json:"error,omitempty"`
+			}
+			if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+				return err
+			}
+			if resp.Error != "" {
+				return fmt.Errorf("server error: %s", resp.Error)
+			}
+			if len(resp.Clients) == 0 {
+				fmt.Println("no clients connected")
+				return nil
+			}
+			fmt.Printf("%-20s  %-15s  %s\n", "NAME", "TUNNEL IP", "CONNECTED AT")
+			for _, c := range resp.Clients {
+				fmt.Printf("%-20s  %-15s  %s\n",
+					c.Name, c.IP, c.ConnectedAt.Local().Format(time.DateTime))
+			}
 			return nil
 		},
 	}
@@ -220,11 +255,11 @@ func serverClientsCmd() *cobra.Command {
 
 func connectCmd() *cobra.Command {
 	var token string
-	var background, wait, insecure bool
+	var background, wait, insecure, reconnect bool
 
 	cmd := &cobra.Command{
 		Use:   "connect <host:port|profile-name>",
-		Short: "Connect to a auth-vpn server",
+		Short: "Connect to an auth-vpn server",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := args[0]
@@ -233,6 +268,7 @@ func connectCmd() *cobra.Command {
 				Background: background,
 				Wait:       wait,
 				Insecure:   insecure,
+				Reconnect:  reconnect,
 			}
 
 			// If no token flag, check if target is a saved profile name.
@@ -255,14 +291,50 @@ func connectCmd() *cobra.Command {
 				}
 			}
 
+			if reconnect {
+				return client.ConnectWithReconnect(opts)
+			}
 			return client.Connect(opts)
 		},
 	}
 	cmd.Flags().StringVarP(&token, "token", "t", "", "Auth token")
-	cmd.Flags().BoolVar(&background, "background", false, "Run tunnel in background")
-	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until tunnel is verified before returning (CI use)")
+	cmd.Flags().BoolVar(&background, "background", false, "Suppress interactive output and write PID state file")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until server is reachable before connecting (CI use)")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification (dev only)")
+	cmd.Flags().BoolVar(&reconnect, "reconnect", false, "Auto-reconnect with exponential backoff on unexpected drop")
 	return cmd
+}
+
+// ─── disconnect ───────────────────────────────────────────────────────────────
+
+func disconnectCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "disconnect",
+		Short: "Disconnect a running background tunnel",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			meta, err := client.ReadMeta()
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					fmt.Println("no running tunnel found")
+					return nil
+				}
+				return err
+			}
+			if !client.IsProcessAlive(meta.PID) {
+				fmt.Println("tunnel process is not running (stale state — cleaned up)")
+				return client.ClearMeta()
+			}
+			proc, err := os.FindProcess(meta.PID)
+			if err != nil {
+				return fmt.Errorf("find process %d: %w", meta.PID, err)
+			}
+			if err := proc.Signal(syscall.SIGTERM); err != nil {
+				return fmt.Errorf("signal process %d: %w", meta.PID, err)
+			}
+			fmt.Printf("disconnected (sent SIGTERM to pid %d)\n", meta.PID)
+			return nil
+		},
+	}
 }
 
 // ─── status ──────────────────────────────────────────────────────────────────
@@ -271,9 +343,28 @@ func statusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show current tunnel status",
-		Run: func(cmd *cobra.Command, args []string) {
-			// A production implementation would check a pid file / unix socket.
-			fmt.Println("auth-vpn status: not connected (no running tunnel detected)")
+		RunE: func(cmd *cobra.Command, args []string) error {
+			meta, err := client.ReadMeta()
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					fmt.Println("status: not connected")
+					return nil
+				}
+				return err
+			}
+			if !client.IsProcessAlive(meta.PID) {
+				fmt.Println("status: not connected (stale state file — run 'auth-vpn disconnect' to clean up)")
+				return nil
+			}
+			uptime := time.Since(meta.ConnectedAt).Round(time.Second)
+			fmt.Println("status: connected")
+			fmt.Printf("  PID          : %d\n", meta.PID)
+			fmt.Printf("  Server       : %s\n", meta.ServerAddr)
+			fmt.Printf("  Tunnel IP    : %s\n", meta.AssignedIP)
+			fmt.Printf("  Server IP    : %s\n", meta.ServerIP)
+			fmt.Printf("  Connected at : %s\n", meta.ConnectedAt.Local().Format(time.DateTime))
+			fmt.Printf("  Uptime       : %s\n", uptime)
+			return nil
 		},
 	}
 }

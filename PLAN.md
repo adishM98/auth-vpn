@@ -440,8 +440,6 @@ tj-vpn connect 20.98.154.174:7777 --token abc123xyz
 - [ ] Client keepalive / auto-reconnect
 - [ ] `tj-vpn server clients` — show live connections
 - [ ] Connection profiles (`tj-vpn profile save`)
-- [ ] GitHub Action wrapper (`tooljet/tj-vpn-action`)
-- [ ] One-liner install script
 
 ### Phase 3 — Polish
 - [ ] Web UI for device management

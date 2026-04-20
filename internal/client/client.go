@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -15,15 +16,21 @@ import (
 	"github.com/adishM98/auth-vpn/pkg/protocol"
 )
 
+// ErrCleanDisconnect is returned by Connect when the tunnel was torn down
+// intentionally (SIGTERM or server TypeDisconnect). ConnectWithReconnect
+// treats this as a normal exit and does not retry.
+var ErrCleanDisconnect = errors.New("clean disconnect")
+
 const tunBufSize = 65535
 
 // Options controls how the client connects.
 type Options struct {
 	ServerAddr string // "host:port"
 	Token      string
-	Background bool // detach after tunnel is up
+	Background bool // suppress interactive output, write PID state file
 	Wait       bool // block until tunnel verified before returning
 	Insecure   bool // skip TLS cert verification (dev only)
+	Reconnect  bool // auto-reconnect with exponential backoff on unexpected drop
 }
 
 // Profile is a saved connection profile (stored in ~/.auth-vpn/profiles.yaml).
@@ -104,10 +111,26 @@ func Connect(opts Options) error {
 	defer tunnel.DelRoute(resp.Subnet) //nolint:errcheck
 
 	log.Printf("tunnel up — route %s via %s", resp.Subnet, ifaceName)
-	fmt.Printf("\n✓ Connected to auth-vpn\n")
-	fmt.Printf("  Tunnel IP : %s\n", resp.ClientIP)
-	fmt.Printf("  Server IP : %s\n", resp.ServerIP)
-	fmt.Printf("  Subnet    : %s\n\n", resp.Subnet)
+
+	if opts.Background {
+		meta := TunnelMeta{
+			ServerAddr:  opts.ServerAddr,
+			AssignedIP:  resp.ClientIP,
+			ServerIP:    resp.ServerIP,
+			Subnet:      resp.Subnet,
+			ConnectedAt: time.Now().UTC(),
+		}
+		if err := WriteMeta(meta); err != nil {
+			log.Printf("warning: could not write tunnel state: %v", err)
+		} else {
+			defer ClearMeta() //nolint:errcheck
+		}
+	} else {
+		fmt.Printf("\n✓ Connected to auth-vpn\n")
+		fmt.Printf("  Tunnel IP : %s\n", resp.ClientIP)
+		fmt.Printf("  Server IP : %s\n", resp.ServerIP)
+		fmt.Printf("  Subnet    : %s\n\n", resp.Subnet)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -167,17 +190,48 @@ func Connect(opts Options) error {
 	// Handle OS signals for graceful disconnect.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sig)
 
 	select {
 	case <-sig:
-		fmt.Println("\n disconnecting...")
+		if !opts.Background {
+			fmt.Println("\n  disconnecting...")
+		}
 		_ = tunnel.WriteFrame(conn, protocol.TypeDisconnect, nil)
+		conn.Close()
+		return ErrCleanDisconnect
 	case <-ctx.Done():
-		fmt.Println("\n tunnel closed")
+		if !opts.Background {
+			fmt.Println("\n  tunnel closed")
+		}
 	}
 
 	conn.Close()
 	return nil
+}
+
+const (
+	reconnectInitialBackoff = 2 * time.Second
+	reconnectMaxBackoff     = 2 * time.Minute
+)
+
+// ConnectWithReconnect calls Connect in a loop with exponential backoff,
+// retrying on unexpected tunnel drops. A clean disconnect (SIGTERM or server
+// TypeDisconnect) breaks the loop and returns nil.
+func ConnectWithReconnect(opts Options) error {
+	backoff := reconnectInitialBackoff
+	for attempt := 1; ; attempt++ {
+		err := Connect(opts)
+		if err == nil || errors.Is(err, ErrCleanDisconnect) {
+			return nil
+		}
+		log.Printf("tunnel dropped (attempt %d): %v — retrying in %s", attempt, err, backoff)
+		time.Sleep(backoff)
+		backoff *= 2
+		if backoff > reconnectMaxBackoff {
+			backoff = reconnectMaxBackoff
+		}
+	}
 }
 
 // WaitForPing dials the server and returns once a TCP connection succeeds.

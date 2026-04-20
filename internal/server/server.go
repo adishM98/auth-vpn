@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 
 	"github.com/adishM98/auth-vpn/internal/auth"
 	"github.com/adishM98/auth-vpn/internal/tunnel"
@@ -26,6 +30,8 @@ type Server struct {
 	clients *clientRegistry
 	limiter *auth.RateLimiter
 	tun     *tunnel.Iface
+	done    chan struct{}
+	wg      sync.WaitGroup
 }
 
 // Config holds server runtime configuration.
@@ -47,7 +53,17 @@ func New(cfg *Config) (*Server, error) {
 		tokens:  tm,
 		clients: newClientRegistry(defaultBaseIP),
 		limiter: auth.NewRateLimiter(),
+		done:    make(chan struct{}),
 	}, nil
+}
+
+// Shutdown signals the server to stop accepting connections and exit cleanly.
+func (s *Server) Shutdown() {
+	select {
+	case <-s.done:
+	default:
+		close(s.done)
+	}
 }
 
 // Start creates the TUN interface, then listens for client connections.
@@ -81,11 +97,36 @@ func (s *Server) Start() error {
 	}
 	log.Printf("auth-vpn server listening on :%d (TLS)", s.cfg.Port)
 
+	// Signal handler — close listener on SIGINT/SIGTERM.
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		select {
+		case <-sig:
+			log.Println("shutting down...")
+			s.Shutdown()
+			ln.Close()
+		case <-s.done:
+			ln.Close()
+		}
+	}()
+
+	// Control socket for CLI queries (server clients).
+	go s.startControlSocket()
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Printf("accept error: %v", err)
-			continue
+			select {
+			case <-s.done:
+				s.wg.Wait()
+				s.tun.Close()
+				os.Remove(SocketFile) //nolint:errcheck
+				return nil
+			default:
+				log.Printf("accept error: %v", err)
+				continue
+			}
 		}
 		go s.handleConn(conn)
 	}
@@ -99,6 +140,8 @@ func (s *Server) ConnectedClients() []clientInfo { return s.clients.Snapshot() }
 
 // handleConn authenticates one client connection and starts forwarding.
 func (s *Server) handleConn(conn net.Conn) {
+	s.wg.Add(1)
+	defer s.wg.Done()
 	remoteIP := strings.Split(conn.RemoteAddr().String(), ":")[0]
 	defer conn.Close()
 

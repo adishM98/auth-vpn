@@ -27,6 +27,7 @@ const (
 	KeyFile     = "/etc/auth-vpn/tls/key.pem"
 	TokensFile  = "/etc/auth-vpn/tokens.yaml"
 	ServiceFile = "/etc/systemd/system/auth-vpn.service"
+	SocketFile  = "/var/run/auth-vpn.sock"
 )
 
 // Install sets up the server: TLS cert, initial token, systemd service.
