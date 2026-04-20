@@ -3,7 +3,7 @@
 A lightweight self-hosted VPN tunnel. Install once, connect from anywhere —
 every application on the machine routes through the tunnel automatically.
 
-> **Internet speed is not affected.** auth-vpn is a split-tunnel VPN — only traffic to `10.0.0.0/24` goes through the tunnel. All other traffic (browsing, downloads, Slack) uses your normal connection unchanged.
+> **Internet speed is not affected.** auth-vpn is a split-tunnel VPN — only traffic to `10.8.0.0/24` goes through the tunnel. All other traffic (browsing, downloads, Slack) uses your normal connection unchanged.
 
 ---
 
@@ -22,11 +22,11 @@ VM (any containers)  ← auth-vpn server (one port open: 7777)
 Every container running on the VM is reachable through the tunnel:
 
 ```
-PostgreSQL  → 10.0.0.1:5432
-MySQL       → 10.0.0.1:3306
-MongoDB     → 10.0.0.1:27017
-Redis       → 10.0.0.1:6379
-Any service → 10.0.0.1:<port>
+PostgreSQL  → 10.8.0.1:5432
+MySQL       → 10.8.0.1:3306
+MongoDB     → 10.8.0.1:27017
+Redis       → 10.8.0.1:6379
+Any service → 10.8.0.1:<port>
 ```
 
 No extra config per service — if the container has a port mapping, it is automatically reachable through the tunnel once connected.
@@ -199,8 +199,8 @@ Output when connected:
 status: connected
   PID          : 12345
   Server       : 20.98.154.174:7777
-  Tunnel IP    : 10.0.0.2
-  Server IP    : 10.0.0.1
+  Tunnel IP    : 10.8.0.2
+  Server IP    : 10.8.0.1
   Connected at : 2025-01-15 09:30:00
   Uptime       : 2h15m30s
 ```
@@ -308,8 +308,8 @@ sudo auth-vpn server clients
 
 ```
 NAME                  TUNNEL IP        CONNECTED AT
-dev-alice             10.0.0.2         2025-01-15 09:30:00
-ci-runner             10.0.0.3         2025-01-15 10:00:00
+dev-alice             10.8.0.2         2025-01-15 09:30:00
+ci-runner             10.8.0.3         2025-01-15 10:00:00
 ```
 
 ---
@@ -321,14 +321,14 @@ ci-runner             10.0.0.3         2025-01-15 10:00:00
 auth-vpn status
 
 # Ping the VM through the tunnel
-ping 10.0.0.1
+ping 10.8.0.1
 
 # Reach any container by port:
-psql    -h 10.0.0.1 -p 5432                    # PostgreSQL
-mysql   -h 10.0.0.1 -P 3306 -u root -p         # MySQL
-mongosh    10.0.0.1:27017                       # MongoDB
-redis-cli -h 10.0.0.1 -p 6379                  # Redis
-curl       http://10.0.0.1:8080/health          # any HTTP service
+psql    -h 10.8.0.1 -p 5432                    # PostgreSQL
+mysql   -h 10.8.0.1 -P 3306 -u root -p         # MySQL
+mongosh    10.8.0.1:27017                       # MongoDB
+redis-cli -h 10.8.0.1 -p 6379                  # Redis
+curl       http://10.8.0.1:8080/health          # any HTTP service
 ```
 
 ---
@@ -368,7 +368,7 @@ ports:
 
 **Internet is slow while tunnel is running**
 
-It shouldn't be — auth-vpn is a split-tunnel. Only traffic to `10.0.0.0/24` goes through the VPN. Run `netstat -rn` to confirm only the VPN subnet is routed through the TUN interface and your default route (`0.0.0.0`) is unchanged.
+It shouldn't be — auth-vpn is a split-tunnel. Only traffic to `10.8.0.0/24` goes through the VPN. Run `netstat -rn` to confirm only the VPN subnet is routed through the TUN interface and your default route (`0.0.0.0`) is unchanged.
 
 ---
 

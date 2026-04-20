@@ -26,8 +26,8 @@ type ServerConfig struct {
 func DefaultServerConfig(port int) ServerConfig {
 	return ServerConfig{
 		Port:        port,
-		Subnet:      "10.0.0.0/24",
-		ServerIP:    "10.0.0.1",
+		Subnet:      "10.8.0.0/24",
+		ServerIP:    "10.8.0.1",
 		MetricsAddr: DefaultMetricsAddr,
 		ACLPath:     ACLFile,
 	}

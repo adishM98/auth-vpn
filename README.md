@@ -18,19 +18,19 @@ VM (Docker containers)   ←   auth-vpn server   (port 7777, TLS)
           └── Test VM           (auth-vpn client)
 ```
 
-The server creates a TUN interface at `10.0.0.1` and assigns each connecting client an IP from `10.0.0.2–254`. All IP traffic to the `10.0.0.0/24` subnet is routed through the tunnel at the OS level — no per-app configuration needed.
+The server creates a TUN interface at `10.8.0.1` and assigns each connecting client an IP from `10.8.0.2–254`. All IP traffic to the `10.8.0.0/24` subnet is routed through the tunnel at the OS level — no per-app configuration needed.
 
 Every container on the VM is reachable the same way:
 
 ```
-PostgreSQL  →  10.0.0.1:5432
-MySQL       →  10.0.0.1:3306
-MongoDB     →  10.0.0.1:27017
-Redis       →  10.0.0.1:6379
-Any service →  10.0.0.1:<port>
+PostgreSQL  →  10.8.0.1:5432
+MySQL       →  10.8.0.1:3306
+MongoDB     →  10.8.0.1:27017
+Redis       →  10.8.0.1:6379
+Any service →  10.8.0.1:<port>
 ```
 
-> **Internet speed is not affected.** auth-vpn is a split-tunnel — only traffic to `10.0.0.0/24` goes through the tunnel. All other traffic (browsing, downloads, Slack) uses your normal connection.
+> **Internet speed is not affected.** auth-vpn is a split-tunnel — only traffic to `10.8.0.0/24` goes through the tunnel. All other traffic (browsing, downloads, Slack) uses your normal connection.
 
 ---
 
@@ -262,14 +262,14 @@ Authorization: Bearer <api-key>
 auth-vpn status
 
 # Ping the VM through the tunnel
-ping 10.0.0.1
+ping 10.8.0.1
 
 # Reach any container
-psql      -h 10.0.0.1 -p 5432
-mysql     -h 10.0.0.1 -P 3306 -u root -p
-mongosh      10.0.0.1:27017
-redis-cli -h 10.0.0.1 -p 6379
-curl         http://10.0.0.1:8080/health
+psql      -h 10.8.0.1 -p 5432
+mysql     -h 10.8.0.1 -P 3306 -u root -p
+mongosh      10.8.0.1:27017
+redis-cli -h 10.8.0.1 -p 6379
+curl         http://10.8.0.1:8080/health
 ```
 
 ---
@@ -353,7 +353,7 @@ services:
     auth-vpn connect staging --background --wait
 
 - name: Run tests against staging DB
-  run: psql -h 10.0.0.1 -p 5432 -U postgres -c '\l'
+  run: psql -h 10.8.0.1 -p 5432 -U postgres -c '\l'
 ```
 
 ---
@@ -392,7 +392,7 @@ make build-all          # all four platforms
 │  │  :9100 (HTTP)│    │  mysql    :3306   │  │
 │  │              │    │  redis    :6379   │  │
 │  │  TUN: tun0   │    │  ...              │  │
-│  │  10.0.0.1/24 │    └───────────────────┘  │
+│  │  10.8.0.1/24 │    └───────────────────┘  │
 │  └──────────────┘                           │
 └─────────────────────────────────────────────┘
           │  TLS 1.3 / port 7777
@@ -401,9 +401,9 @@ make build-all          # all four platforms
    │  Client machine                     │
    │                                     │
    │  TUN: utun3 (macOS) / tun0 (Linux)  │
-   │  IP: 10.0.0.2                       │
+   │  IP: 10.8.0.2                       │
    │                                     │
-   │  Route: 10.0.0.0/24 → TUN          │
+   │  Route: 10.8.0.0/24 → TUN          │
    │  Everything else → normal internet  │
    └─────────────────────────────────────┘
 ```
@@ -411,7 +411,7 @@ make build-all          # all four platforms
 **Packet flow:**
 
 ```
-App on client writes to 10.0.0.1:5432
+App on client writes to 10.8.0.1:5432
   → OS routes packet to TUN (split-tunnel — only VPN subnet)
     → auth-vpn client reads from TUN
       → wraps in length-prefixed frame

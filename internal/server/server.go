@@ -48,10 +48,10 @@ type Config struct {
 
 func (cfg *Config) applyDefaults() {
 	if cfg.Subnet == "" {
-		cfg.Subnet = "10.0.0.0/24"
+		cfg.Subnet = "10.8.0.0/24"
 	}
 	if cfg.ServerIP == "" {
-		cfg.ServerIP = "10.0.0.1"
+		cfg.ServerIP = "10.8.0.1"
 	}
 	if cfg.MetricsAddr == "" {
 		cfg.MetricsAddr = DefaultMetricsAddr
