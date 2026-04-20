@@ -19,12 +19,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-if ! command -v gh &>/dev/null; then
-  red "gh CLI not found. Install: brew install gh  then: gh auth login"
-  exit 1
-fi
-
-# ── detect current version ────────────────────────────────────────────────────
+#── detect current version ────────────────────────────────────────────────────
 
 CURRENT=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
 if [[ -z "$CURRENT" ]]; then
@@ -103,11 +98,20 @@ green "✓ Tagged and pushed $NEW_TAG"
 echo ""
 bold "Next steps:"
 echo ""
-echo "  1. Build all binaries and publish to GitHub:"
+echo "  1. Build all binaries locally:"
 echo ""
-echo "       make release VERSION=$NEW_VERSION"
+echo "       make build-all"
 echo ""
-echo "  2. Or open the GitHub releases page and publish the draft manually:"
+echo "  2. Go to GitHub and create the release:"
 echo ""
-echo "       https://github.com/adishM98/auth-vpn/releases/tag/$NEW_TAG"
+echo "       https://github.com/adishM98/auth-vpn/releases/new?tag=$NEW_TAG"
+echo ""
+echo "  3. Upload these files from dist/:"
+echo "       - auth-vpn-linux-amd64"
+echo "       - auth-vpn-darwin-amd64"
+echo "       - auth-vpn-darwin-arm64"
+echo "       - auth-vpn-windows-amd64.exe"
+echo "       - install.sh"
+echo ""
+echo "  4. Click Publish release."
 echo ""
