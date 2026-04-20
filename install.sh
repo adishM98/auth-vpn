@@ -40,7 +40,7 @@ fail() { echo -e "\n  ${RED}✗ $*${RESET}\n" >&2; exit 1; }
 bold() { echo -e "${BOLD}$*${RESET}"; }
 line() { echo "  ────────────────────────────────────────────"; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # ── detect OS + arch ─────────────────────────────────────────────────────────
 detect_platform() {
@@ -73,7 +73,7 @@ download_from_github() {
     url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
   fi
 
-  info "Downloading ${asset} from GitHub releases..."
+  info "Downloading ${asset} from GitHub releases..." >&2
 
   if command -v curl &>/dev/null; then
     curl -fsSL --retry 3 "$url" -o "$tmp" \
@@ -86,7 +86,7 @@ download_from_github() {
   fi
 
   chmod +x "$tmp"
-  ok "Downloaded ${asset}"
+  ok "Downloaded ${asset}" >&2
   echo "$tmp"
 }
 
@@ -153,10 +153,10 @@ ensure_go() {
 # ── build from source (fallback when run from cloned repo) ───────────────────
 build_from_source() {
   local platform="$1"
-  info "Building auth-vpn from source..."
+  info "Building auth-vpn from source..." >&2
 
   if ! command -v git &>/dev/null; then
-    warn "git not found — attempting to install..."
+    warn "git not found — attempting to install..." >&2
     if command -v apt-get &>/dev/null; then
       apt-get install -y -q git
     elif command -v yum &>/dev/null; then
@@ -166,7 +166,7 @@ build_from_source() {
     else
       fail "Cannot install git automatically. Install it manually and re-run."
     fi
-    ok "git installed"
+    ok "git installed" >&2
   fi
 
   mkdir -p "${SCRIPT_DIR}/dist"
@@ -182,7 +182,7 @@ build_from_source() {
       ./cmd
   )
 
-  ok "Build complete: dist/${BINARY}-${platform}"
+  ok "Build complete: dist/${BINARY}-${platform}" >&2
   echo "${SCRIPT_DIR}/dist/${BINARY}-${platform}"
 }
 
@@ -205,7 +205,7 @@ resolve_binary() {
   )
   for f in "${candidates[@]}"; do
     if [[ -f "$f" && -x "$f" ]]; then
-      ok "Using pre-built binary: $(basename "$f")"
+      ok "Using pre-built binary: $(basename "$f")" >&2
       echo "$f"
       return
     fi
@@ -219,7 +219,7 @@ resolve_binary() {
   fi
 
   # 3. Fall back to building from source (needs Go — auto-installed on Linux)
-  warn "GitHub download failed — falling back to build from source"
+  warn "GitHub download failed — falling back to build from source" >&2
   ensure_go
   build_from_source "$platform"
 }
