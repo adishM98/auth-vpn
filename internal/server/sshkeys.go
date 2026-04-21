@@ -1,7 +1,11 @@
 package server
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"sync"
@@ -91,6 +95,32 @@ func (m *SSHKeysManager) List() []SSHKeyEntry {
 	out := make([]SSHKeyEntry, len(m.entries))
 	copy(out, m.entries)
 	return out
+}
+
+// Generate creates an RSA keypair, registers the public key under name, and
+// returns the PEM-encoded private key. The private key is never stored — caller
+// must deliver it to the end user immediately.
+func (m *SSHKeysManager) Generate(name string) (privateKeyPEM string, err error) {
+	key, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		return "", fmt.Errorf("generate key: %w", err)
+	}
+
+	pub, err := ssh.NewPublicKey(&key.PublicKey)
+	if err != nil {
+		return "", fmt.Errorf("derive public key: %w", err)
+	}
+	pubLine := string(ssh.MarshalAuthorizedKey(pub))
+
+	if err := m.Add(name, pubLine); err != nil {
+		return "", err
+	}
+
+	pemBlock := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+	return string(pemBlock), nil
 }
 
 // FindKey returns the name associated with the given public key, or "" if not found.

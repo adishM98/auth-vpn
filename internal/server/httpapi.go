@@ -23,6 +23,7 @@ func (s *Server) startHTTPAPI() {
 	mux.HandleFunc("/api/forwards", s.withAuth(s.handleAPIForwards))
 	mux.HandleFunc("/api/forwards/", s.withAuth(s.handleAPIForwardsDelete))
 	mux.HandleFunc("/api/ssh-keys", s.withAuth(s.handleAPISSHKeys))
+	mux.HandleFunc("/api/ssh-keys/generate", s.withAuth(s.handleAPISSHKeysGenerate))
 	mux.HandleFunc("/api/ssh-keys/", s.withAuth(s.handleAPISSHKeysDelete))
 	mux.HandleFunc("/tooljet/", s.handleToolJet)
 	mux.HandleFunc("/ui", s.withAuth(s.handleWebUI))
@@ -242,6 +243,30 @@ func (s *Server) handleAPISSHKeys(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleAPISSHKeysGenerate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
+		return
+	}
+	privKey, err := s.sshKeys.Generate(body.Name)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	// Private key returned once — never stored server-side.
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"name":        body.Name,
+		"private_key": privKey,
+	})
 }
 
 func (s *Server) handleAPISSHKeysDelete(w http.ResponseWriter, r *http.Request) {
