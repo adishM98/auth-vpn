@@ -148,9 +148,14 @@ func (s *Server) handleAPIWhitelistDelete(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
 		return
 	}
+	// Capture the IP before removal so we can kill active connections.
+	ip := s.whitelist.IPForName(name)
 	if err := s.whitelist.Remove(name); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
+	}
+	if ip != "" {
+		go s.killDirectConns(ip)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"removed": name})
 }

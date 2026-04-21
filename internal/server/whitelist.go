@@ -99,6 +99,18 @@ func (wm *WhitelistManager) List() []WhitelistEntry {
 	return out
 }
 
+// IPForName returns the IP/CIDR for the named entry, or "" if not found.
+func (wm *WhitelistManager) IPForName(name string) string {
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	for _, e := range wm.entries {
+		if e.Name == name {
+			return e.IP
+		}
+	}
+	return ""
+}
+
 // Contains returns the entry name and true if remoteIP matches any entry.
 // Supports both exact IP and CIDR range matching.
 func (wm *WhitelistManager) Contains(remoteIP string) (string, bool) {

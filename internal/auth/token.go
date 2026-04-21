@@ -15,12 +15,12 @@ import (
 
 // Token represents a stored access token (hash only — raw value never stored).
 type Token struct {
-	Name      string     `yaml:"name"`
-	Hash      string     `yaml:"hash"`
-	CreatedAt time.Time  `yaml:"created_at"`
-	ExpiresAt *time.Time `yaml:"expires_at,omitempty"`
-	OneTime   bool       `yaml:"one_time,omitempty"`
-	Used      bool       `yaml:"used,omitempty"`
+	Name      string     `yaml:"name"       json:"name"`
+	Hash      string     `yaml:"hash"       json:"-"`
+	CreatedAt time.Time  `yaml:"created_at" json:"created_at"`
+	ExpiresAt *time.Time `yaml:"expires_at,omitempty" json:"expires_at,omitempty"`
+	OneTime   bool       `yaml:"one_time,omitempty"   json:"one_time,omitempty"`
+	Used      bool       `yaml:"used,omitempty"       json:"used,omitempty"`
 }
 
 type tokensFile struct {

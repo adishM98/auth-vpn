@@ -160,6 +160,19 @@ func (s *Server) handleDirectConn(conn net.Conn, target string) {
 		return
 	}
 
+	// Track this connection so it can be killed if the IP is removed from the whitelist.
+	s.dcMu.Lock()
+	if s.directConns[remoteIP] == nil {
+		s.directConns[remoteIP] = make(map[net.Conn]struct{})
+	}
+	s.directConns[remoteIP][conn] = struct{}{}
+	s.dcMu.Unlock()
+	defer func() {
+		s.dcMu.Lock()
+		delete(s.directConns[remoteIP], conn)
+		s.dcMu.Unlock()
+	}()
+
 	backend, err := net.DialTimeout("tcp", target, 10*time.Second)
 	if err != nil {
 		log.Printf("direct: %s → %s: dial error: %v", name, target, err)
@@ -173,4 +186,17 @@ func (s *Server) handleDirectConn(conn net.Conn, target string) {
 	go func() { io.Copy(backend, conn); done <- struct{}{} }()  //nolint:errcheck
 	go func() { io.Copy(conn, backend); done <- struct{}{} }()  //nolint:errcheck
 	<-done
+}
+
+// killDirectConns closes all active direct-forward connections from the given IP.
+func (s *Server) killDirectConns(ip string) {
+	s.dcMu.Lock()
+	conns := s.directConns[ip]
+	delete(s.directConns, ip)
+	s.dcMu.Unlock()
+
+	for conn := range conns {
+		conn.Close()
+		log.Printf("direct: killed connection from de-whitelisted IP %s", ip)
+	}
 }

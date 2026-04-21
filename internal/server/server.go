@@ -28,6 +28,8 @@ type Server struct {
 	forwards        *ForwardsManager
 	directListeners map[int]net.Listener
 	dlMu            sync.Mutex
+	directConns     map[string]map[net.Conn]struct{} // remoteIP → active direct-forward conns
+	dcMu            sync.Mutex
 	clients         *clientRegistry
 	limiter         *auth.RateLimiter
 	tun             *tunnel.Iface
@@ -116,6 +118,7 @@ func New(cfg *Config) (*Server, error) {
 		whitelist:       wm,
 		forwards:        fm,
 		directListeners: make(map[int]net.Listener),
+		directConns:     make(map[string]map[net.Conn]struct{}),
 		clients:         newClientRegistry(baseIP),
 		limiter:         auth.NewRateLimiter(),
 		acl:             aclEngine,
