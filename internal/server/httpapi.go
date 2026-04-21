@@ -16,6 +16,7 @@ func (s *Server) startHTTPAPI() {
 	mux.HandleFunc("/metrics", s.withAuth(s.handleMetrics))
 	mux.HandleFunc("/health", s.withAuth(s.handleHealth))
 	mux.HandleFunc("/api/clients", s.withAuth(s.handleAPIClients))
+	mux.HandleFunc("/api/clients/", s.withAuth(s.handleAPIClientDisconnect))
 	mux.HandleFunc("/api/tokens", s.withAuth(s.handleAPITokens))
 	mux.HandleFunc("/api/tokens/", s.withAuth(s.handleAPITokenDelete))
 	mux.HandleFunc("/api/whitelist", s.withAuth(s.handleAPIWhitelist))
@@ -70,6 +71,26 @@ func (s *Server) handleAPIClients(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"clients": s.clients.Snapshot(),
 	})
+}
+
+func (s *Server) handleAPIClientDisconnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
+		return
+	}
+	c := s.clients.GetByName(name)
+	if c == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "client not found"})
+		return
+	}
+	c.conn.Close() // triggers cleanup chain in handleConn
+	log.Printf("admin disconnected client %q", name)
+	writeJSON(w, http.StatusOK, map[string]string{"disconnected": name})
 }
 
 func (s *Server) handleAPITokens(w http.ResponseWriter, r *http.Request) {

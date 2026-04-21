@@ -80,6 +80,18 @@ func (r *clientRegistry) GetByIP(ip string) *connectedClient {
 	return r.clients[ip]
 }
 
+// GetByName returns the client with the given name, or nil.
+func (r *clientRegistry) GetByName(name string) *connectedClient {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, c := range r.clients {
+		if c.name == name {
+			return c
+		}
+	}
+	return nil
+}
+
 // Remove deregisters a client by tunnel IP.
 func (r *clientRegistry) Remove(ip string) {
 	r.mu.Lock()

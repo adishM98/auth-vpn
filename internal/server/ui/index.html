@@ -267,8 +267,8 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
           <span class="badge badge-green" id="client-count-badge">0 online</span>
         </div>
         <table>
-          <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected At</th><th>In</th><th>Out</th><th>Status</th></tr></thead>
-          <tbody id="clients-body"><tr class="empty-row"><td colspan="6">loading...</td></tr></tbody>
+          <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected At</th><th>In</th><th>Out</th><th>Status</th><th></th></tr></thead>
+          <tbody id="clients-body"><tr class="empty-row"><td colspan="7">loading...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -283,8 +283,8 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
           </div>
         </div>
         <table>
-          <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected At</th><th>In</th><th>Out</th><th>Status</th></tr></thead>
-          <tbody id="clients-body2"><tr class="empty-row"><td colspan="6">loading...</td></tr></tbody>
+          <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected At</th><th>In</th><th>Out</th><th>Status</th><th></th></tr></thead>
+          <tbody id="clients-body2"><tr class="empty-row"><td colspan="7">loading...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -549,7 +549,7 @@ async function refresh() {
     const cls = clients.data.clients || [];
     document.getElementById('client-count-badge').textContent = cls.length + ' online';
     const clientRow = cls.length === 0
-      ? '<tr class="empty-row"><td colspan="6">no clients connected</td></tr>'
+      ? '<tr class="empty-row"><td colspan="7">no clients connected</td></tr>'
       : cls.map(c => `<tr>
           <td><strong>${esc(c.name)}</strong></td>
           <td class="mono">${esc(c.ip)}</td>
@@ -557,6 +557,7 @@ async function refresh() {
           <td class="mono">${fmt.bytes(c.bytes_in||0)}</td>
           <td class="mono">${fmt.bytes(c.bytes_out||0)}</td>
           <td><span class="badge badge-green">● online</span></td>
+          <td><button class="btn btn-danger btn-sm" onclick="kickClient('${esc(c.name)}')">Kick</button></td>
         </tr>`).join('');
     document.getElementById('clients-body').innerHTML = clientRow;
     document.getElementById('clients-body2').innerHTML = clientRow;
@@ -646,6 +647,13 @@ document.getElementById('token-form').addEventListener('submit', async e => {
 function copyTokenResult() {
   const text = document.getElementById('token-result-text').textContent;
   navigator.clipboard.writeText(text).then(() => toast('Copied to clipboard'));
+}
+
+async function kickClient(name) {
+  if (!confirm('Disconnect client "' + name + '"?')) return;
+  const { ok } = await api('/api/clients/' + encodeURIComponent(name), { method: 'DELETE' });
+  ok ? toast('Client disconnected') : toast('Failed to disconnect client', 'error');
+  refresh();
 }
 
 async function revokeToken(name) {
