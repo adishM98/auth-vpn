@@ -46,7 +46,7 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 
 ```bash
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | bash
+  | sudo bash
 ```
 
 Then connect:
@@ -142,7 +142,7 @@ Azure Portal → VM → Networking → Inbound port rules
 
 ```bash
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | bash
+  | sudo bash
 ```
 
 ### Option B — Windows
@@ -211,7 +211,7 @@ status: connected
 
 ```bash
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | bash
+  | sudo bash
 
 # Connect in background — stays alive after SSH session ends
 auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
@@ -258,6 +258,7 @@ The server exposes a live dashboard at `http://localhost:9100/ui`:
 - Connected clients table (name, tunnel IP, connected at)
 - Token management — create/revoke from the browser
 - **IP Whitelist** — add/remove IPs and CIDRs that bypass token auth
+- **SSH Keys** — generate server-side RSA keypairs or register existing public keys for SSH tunnel auth
 - **Direct Forwards** — expose backend ports to whitelisted IPs, no client needed
 
 **Access remotely via SSH tunnel:**
@@ -324,7 +325,70 @@ ToolJet VM → TCP :5432 → auth-vpn server
 
 ---
 
-## Part 8 — ACL rules (optional, restrict per device)
+## Part 8 — SSH tunnel (ToolJet and other tools, no auth-vpn binary needed)
+
+auth-vpn runs an embedded SSH server on port **2222**. Tools like ToolJet can connect via standard SSH local port forwarding — no auth-vpn binary or VPN client required.
+
+### Auth methods
+
+| Method | How |
+|--------|-----|
+| Private key | Generate from dashboard → SSH Keys → Generate Keypair |
+| Password | Use any auth-vpn token as the SSH password (any username) |
+| System key | Any key in `~/.ssh/authorized_keys` on the server VM works automatically |
+
+### Step-by-step: ToolJet via SSH tunnel
+
+**1. Generate a keypair** (from the dashboard or API):
+
+```bash
+curl -X POST http://localhost:9100/api/ssh-keys/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"tooljet-prod"}'
+# Response: { "name": "tooljet-prod", "private_key": "-----BEGIN RSA PRIVATE KEY-----\n..." }
+```
+
+The private key is returned **once** — copy it immediately.
+
+**2. Configure the ToolJet datasource:**
+
+```
+Connection type: SSH tunnel
+
+SSH Host:      <auth-vpn server public IP>
+SSH Port:      2222
+SSH Username:  any (e.g. "tooljet")
+SSH Auth:      Private key  ← paste the PEM private key
+
+Database Host: 127.0.0.1   ← relative to the auth-vpn server
+Database Port: 5432
+```
+
+**3. Open port 2222** in your firewall/NSG for the ToolJet VM's IP — no other ports needed.
+
+> The IP whitelist does **not** apply to SSH tunnel connections. Auth is entirely via key or token.
+
+### SSH Keys API
+
+```bash
+# List registered keys
+curl http://localhost:9100/api/ssh-keys
+
+# Generate a new keypair
+curl -X POST http://localhost:9100/api/ssh-keys/generate \
+  -d '{"name":"tooljet-prod"}'
+
+# Register an existing public key
+curl -X POST http://localhost:9100/api/ssh-keys \
+  -d '{"name":"alice","public_key":"ssh-rsa AAAA..."}'
+
+# Remove a key
+curl -X DELETE http://localhost:9100/api/ssh-keys/tooljet-prod
+```
+
+---
+
+## Part 9 — ACL rules (optional, restrict per device)
 
 Edit `/etc/auth-vpn/acl.yaml`:
 
@@ -355,7 +419,7 @@ sudo systemctl kill -s HUP auth-vpn
 
 ---
 
-## Part 9 — Server clients list (run on the server VM)
+## Part 10 — Server clients list (run on the server VM)
 
 See who is currently connected:
 
@@ -396,12 +460,18 @@ curl       http://10.8.0.1:8080/health          # any HTTP service
 ```bash
 chmod +x install.sh
 sudo ./install.sh --server   # server
-./install.sh                 # client
+sudo ./install.sh            # client
 ```
 
 **`Cannot write to /usr/local/bin`**
+
+When installing via curl pipe, use `sudo bash` (not `sudo curl`):
 ```bash
-sudo ./install.sh
+# Correct:
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
+
+# Wrong — sudo applies to curl, not bash:
+sudo curl -fsSL ... | bash
 ```
 
 **Download fails (no internet / firewall)**
@@ -469,7 +539,7 @@ After `make release`, the curl one-liners above automatically pick up the new ve
 | DevOps | `make release` | Shipping a new version |
 | DevOps | `curl ... \| sudo bash -s -- --server` | Once per VM that has containers |
 | DevOps | `make deploy-client VM=user@host` | Once per additional VM (alternative) |
-| Dev / QA | `curl ... \| bash` then `auth-vpn connect staging` | Once per laptop |
+| Dev / QA | `curl ... \| sudo bash` then `auth-vpn connect staging` | Once per laptop |
 | Dev / QA | `auth-vpn disconnect` | When done for the day |
 | DevOps | `auth-vpn server tokens add --name x` | Onboarding new team member |
 | DevOps | `auth-vpn server tokens revoke --name x` | Offboarding |

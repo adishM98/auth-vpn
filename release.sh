@@ -57,7 +57,7 @@ curl -fsSL https://github.com/${REPO}/releases/latest/download/install.sh | sudo
 
 **Client (dev/QA laptop or another VM):**
 \`\`\`bash
-curl -fsSL https://github.com/${REPO}/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/${REPO}/releases/latest/download/install.sh | sudo bash
 \`\`\`
 
 See [INSTALL.md](https://github.com/${REPO}/blob/main/INSTALL.md) for full setup guide." \

@@ -63,7 +63,7 @@ At the end you'll see:
 
 ```bash
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | bash
+  | sudo bash
 ```
 
 Then connect:
@@ -99,6 +99,7 @@ auth-vpn connect staging --background --reconnect  # auto-reconnect on drop
 
 - **TLS 1.3** — all traffic is encrypted in transit
 - **Token auth** — SHA-256 hashed tokens stored on server, raw token never persisted
+- **SSH key auth** — connect the embedded SSH server using an RSA key pair; generate server-side or register your own; system `authorized_keys` automatically trusted
 - **Rate limiting** — 5 failed auth attempts = 60 second IP ban
 - **Concurrent token prevention** — same token cannot be used from two places simultaneously
 - **Token controls** — permanent, expiring, or one-time tokens; revoke any token instantly without restarting the server
@@ -107,6 +108,7 @@ auth-vpn connect staging --background --reconnect  # auto-reconnect on drop
 - **Single port** — close all container ports from the internet, only 7777 TCP needs to be open
 - **IP whitelist** — static IPs/CIDRs (VMs, PaaS) can connect without a token; managed from the dashboard
 - **Direct forwards** — expose backend ports to whitelisted IPs with no auth-vpn client required
+- **SSH tunnel** — ToolJet and other tools connect via standard SSH port forwarding; no auth-vpn binary needed on the client side
 
 ---
 
@@ -206,6 +208,7 @@ After `server install`, a dashboard is available at `http://localhost:9100/ui` o
 - Connected clients table with tunnel IP and connection time
 - Token management: create and revoke tokens from the browser
 - **IP Whitelist**: add/remove IPs or CIDRs that can connect without a token
+- **SSH Keys**: generate server-side RSA keypairs or register existing public keys for SSH tunnel auth
 - **Direct Forwards**: expose backend ports to whitelisted IPs — no auth-vpn client needed
 
 To access the dashboard remotely, use an SSH tunnel:
@@ -299,6 +302,66 @@ External machine (whitelisted IP)
 
 > Remember to open the forwarded ports in your firewall/NSG for the whitelisted IPs.
 > Only those IPs can connect — all others are dropped immediately.
+
+---
+
+## SSH tunnel (ToolJet and other tools)
+
+auth-vpn runs an embedded SSH server on port **2222** that supports standard SSH local port forwarding.
+This lets tools like ToolJet connect to backend services using a plain SSH datasource — **no auth-vpn binary needed**.
+
+### Auth methods
+
+| Method | How |
+|--------|-----|
+| Private key | Generate a keypair from the dashboard → SSH Keys → Generate, or register an existing public key |
+| Password | Use any auth-vpn token as the SSH password (any username) |
+| System key | Any key in `~/.ssh/authorized_keys` on the server VM automatically works |
+
+### Generate a keypair (from the dashboard)
+
+1. Open `http://localhost:9100/ui` → **SSH Keys** tab
+2. Click **Generate Keypair**, enter a name
+3. Copy the private key — it is shown only once, never stored server-side
+4. Paste it into your SSH client or ToolJet datasource
+
+### ToolJet datasource setup (SSH tunnel)
+
+In ToolJet, edit your PostgreSQL datasource:
+
+```
+Connection type: SSH tunnel
+
+SSH Host:     <auth-vpn server public IP>
+SSH Port:     2222
+SSH Username: any (e.g. "tooljet")
+SSH Auth:     Private key  ← paste the generated PEM key
+
+Database Host: 127.0.0.1   ← relative to the auth-vpn server
+Database Port: 5432
+```
+
+ToolJet connects to auth-vpn's SSH server, authenticates with the key, then opens a forwarded TCP connection to `127.0.0.1:5432` on the server — reaching postgres directly, without any VPN client or whitelisted IP.
+
+### API
+
+```bash
+# List registered keys
+curl http://localhost:9100/api/ssh-keys
+
+# Generate a new keypair (private key returned once)
+curl -X POST http://localhost:9100/api/ssh-keys/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"tooljet-prod"}'
+
+# Register an existing public key
+curl -X POST http://localhost:9100/api/ssh-keys \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"alice","public_key":"ssh-rsa AAAA..."}'
+
+# Remove a key
+curl -X DELETE http://localhost:9100/api/ssh-keys/tooljet-prod
+```
 
 ---
 
@@ -402,11 +465,11 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 
 # Client
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | bash
+  | sudo bash
 
 # Pin to a specific version
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | bash -s -- --version=v1.2.3
+  | sudo bash -s -- --version=v1.2.3
 ```
 
 ### Deploy from your Mac (VM needs nothing)
@@ -430,8 +493,8 @@ make deploy VM=azureuser@<vm-ip> PORT=8888 SSH_KEY=~/.ssh/id_ed25519
 ```bash
 git clone https://github.com/adishM98/auth-vpn
 cd auth-vpn
-./install.sh              # client
-sudo ./install.sh --server   # server
+sudo ./install.sh              # client
+sudo ./install.sh --server     # server
 ```
 
 ---
@@ -458,7 +521,7 @@ services:
 # GitHub Actions example
 - name: Install auth-vpn
   run: |
-    curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | bash
+    curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
 
 - name: Connect to staging
   run: |
