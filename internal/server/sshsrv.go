@@ -32,6 +32,7 @@ func (s *Server) startSSHServer() {
 	}
 
 	cfg := &ssh.ServerConfig{
+		// Password auth: any username, auth-vpn token as password.
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 			tok, err := s.tokens.Validate(string(pass))
 			if err != nil {
@@ -42,6 +43,19 @@ func (s *Server) startSSHServer() {
 			s.limiter.Reset(c.RemoteAddr().String())
 			return &ssh.Permissions{
 				Extensions: map[string]string{"name": tok.Name},
+			}, nil
+		},
+		// Public key auth: SSH key registered via /api/ssh-keys.
+		PublicKeyCallback: func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			name, ok := s.sshKeys.FindKey(key)
+			if !ok {
+				s.limiter.RecordFailure(c.RemoteAddr().String())
+				s.metrics.IncAuthFailure()
+				return nil, fmt.Errorf("unregistered public key")
+			}
+			s.limiter.Reset(c.RemoteAddr().String())
+			return &ssh.Permissions{
+				Extensions: map[string]string{"name": name},
 			}, nil
 		},
 	}

@@ -26,6 +26,7 @@ type Server struct {
 	tokens          *auth.Manager
 	whitelist       *WhitelistManager
 	forwards        *ForwardsManager
+	sshKeys         *SSHKeysManager
 	directListeners map[int]net.Listener
 	dlMu            sync.Mutex
 	directConns     map[string]map[net.Conn]struct{} // remoteIP → active direct-forward conns
@@ -68,10 +69,11 @@ func (cfg *Config) applyDefaults() {
 	}
 	if cfg.ForwardBindAddr == "" {
 		cfg.ForwardBindAddr = outboundIP()
-		if cfg.ForwardBindAddr != "" {
-			cfg.persistForwardBind()
-		}
 	}
+	if cfg.SSHAddr == "" {
+		cfg.SSHAddr = ":2222"
+	}
+	cfg.persistAutoDefaults()
 }
 
 // outboundIP returns the local IP the OS would use for outbound traffic.
@@ -85,19 +87,30 @@ func outboundIP() string {
 	return conn.LocalAddr().(*net.UDPAddr).IP.String()
 }
 
-// persistForwardBind writes forward_bind_addr back into server.yaml so the
-// auto-detected value survives restarts and is visible to operators.
-func (cfg *Config) persistForwardBind() {
+// persistAutoDefaults writes auto-detected values back into server.yaml so they
+// survive restarts and are visible to operators.
+func (cfg *Config) persistAutoDefaults() {
 	sc, err := LoadServerConfig(ServerConfigFile)
-	if err != nil || sc.ForwardBindAddr != "" {
-		return // file missing or already set — nothing to do
+	if err != nil {
+		return // not a server install or file unreadable
 	}
-	sc.ForwardBindAddr = cfg.ForwardBindAddr
-	if err := SaveServerConfig(ServerConfigFile, sc); err != nil {
-		log.Printf("warning: persist forward_bind_addr: %v", err)
+	changed := false
+	if sc.ForwardBindAddr == "" && cfg.ForwardBindAddr != "" {
+		sc.ForwardBindAddr = cfg.ForwardBindAddr
+		log.Printf("auto-detected forward_bind_addr: %s (saved to server.yaml)", cfg.ForwardBindAddr)
+		changed = true
+	}
+	if sc.SSHAddr == "" && cfg.SSHAddr != "" {
+		sc.SSHAddr = cfg.SSHAddr
+		log.Printf("auto-set ssh_addr: %s (saved to server.yaml)", cfg.SSHAddr)
+		changed = true
+	}
+	if !changed {
 		return
 	}
-	log.Printf("auto-detected forward_bind_addr: %s (saved to server.yaml)", cfg.ForwardBindAddr)
+	if err := SaveServerConfig(ServerConfigFile, sc); err != nil {
+		log.Printf("warning: persist server.yaml: %v", err)
+	}
 }
 
 // baseIPFromSubnet derives "10.0.0" from "10.0.0.0/24".
@@ -140,6 +153,12 @@ func New(cfg *Config) (*Server, error) {
 		fm, _ = NewForwardsManager("")
 	}
 
+	km, err := NewSSHKeysManager(SSHKeysFile)
+	if err != nil {
+		log.Printf("warning: load ssh keys: %v", err)
+		km, _ = NewSSHKeysManager("")
+	}
+
 	var aclEngine *acl.Engine
 	if cfg.ACLPath != "" {
 		aclEngine, err = acl.Load(cfg.ACLPath)
@@ -153,6 +172,7 @@ func New(cfg *Config) (*Server, error) {
 		tokens:          tm,
 		whitelist:       wm,
 		forwards:        fm,
+		sshKeys:         km,
 		directListeners: make(map[int]net.Listener),
 		directConns:     make(map[string]map[net.Conn]struct{}),
 		bindErrors:      make(map[int]string),

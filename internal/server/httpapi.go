@@ -22,6 +22,8 @@ func (s *Server) startHTTPAPI() {
 	mux.HandleFunc("/api/whitelist/", s.withAuth(s.handleAPIWhitelistDelete))
 	mux.HandleFunc("/api/forwards", s.withAuth(s.handleAPIForwards))
 	mux.HandleFunc("/api/forwards/", s.withAuth(s.handleAPIForwardsDelete))
+	mux.HandleFunc("/api/ssh-keys", s.withAuth(s.handleAPISSHKeys))
+	mux.HandleFunc("/api/ssh-keys/", s.withAuth(s.handleAPISSHKeysDelete))
 	mux.HandleFunc("/tooljet/", s.handleToolJet)
 	mux.HandleFunc("/ui", s.withAuth(s.handleWebUI))
 	mux.HandleFunc("/", s.withAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +217,48 @@ func (s *Server) handleAPIForwardsDelete(w http.ResponseWriter, r *http.Request)
 	s.stopDirectListener(port)
 	log.Printf("direct forward removed: :%d", port)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"removed_port": port})
+}
+
+func (s *Server) handleAPISSHKeys(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"ssh_keys": s.sshKeys.List(),
+		})
+	case http.MethodPost:
+		var body struct {
+			Name      string `json:"name"`
+			PublicKey string `json:"public_key"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.PublicKey == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and public_key required"})
+			return
+		}
+		if err := s.sshKeys.Add(body.Name, body.PublicKey); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]string{"name": body.Name})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPISSHKeysDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/api/ssh-keys/")
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
+		return
+	}
+	if err := s.sshKeys.Remove(name); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"removed": name})
 }
 
 // withAuth wraps a handler to require API key authentication when APIKey is set.

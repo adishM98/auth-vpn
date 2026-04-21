@@ -29,6 +29,7 @@ const (
 	TokensFile    = "/etc/auth-vpn/tokens.yaml"
 	WhitelistFile = "/etc/auth-vpn/whitelist.json"
 	ForwardsFile  = "/etc/auth-vpn/forwards.json"
+	SSHKeysFile   = "/etc/auth-vpn/ssh_keys.json"
 	ServiceFile   = "/etc/systemd/system/auth-vpn.service"
 	SocketFile    = "/var/run/auth-vpn.sock"
 )
