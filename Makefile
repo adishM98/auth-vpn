@@ -1,6 +1,6 @@
 BINARY  = auth-vpn
 REPO    = adishM98/auth-vpn
-VERSION ?= 1.1.11
+VERSION ?= 1.2.0
 DIST    = dist
 LDFLAGS = -ldflags="-s -w -X main.Version=v$(VERSION)"
 
