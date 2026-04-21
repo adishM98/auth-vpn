@@ -163,8 +163,15 @@ func (s *Server) handleAPIWhitelistDelete(w http.ResponseWriter, r *http.Request
 func (s *Server) handleAPIForwards(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		s.beMu.RLock()
+		errs := make(map[int]string, len(s.bindErrors))
+		for k, v := range s.bindErrors {
+			errs[k] = v
+		}
+		s.beMu.RUnlock()
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"forwards": s.forwards.List(),
+			"forwards":    s.forwards.List(),
+			"bind_errors": errs,
 		})
 	case http.MethodPost:
 		var body struct {

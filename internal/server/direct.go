@@ -112,8 +112,15 @@ func (s *Server) startDirectListener(f DirectForward) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Printf("direct forward :%d → %s: listen error: %v", f.ListenPort, f.Target, err)
+		s.beMu.Lock()
+		s.bindErrors[f.ListenPort] = err.Error()
+		s.beMu.Unlock()
 		return
 	}
+
+	s.beMu.Lock()
+	delete(s.bindErrors, f.ListenPort)
+	s.beMu.Unlock()
 
 	s.dlMu.Lock()
 	s.directListeners[f.ListenPort] = ln
@@ -146,6 +153,10 @@ func (s *Server) stopDirectListener(listenPort int) {
 	if ok {
 		ln.Close()
 	}
+
+	s.beMu.Lock()
+	delete(s.bindErrors, listenPort)
+	s.beMu.Unlock()
 }
 
 // handleDirectConn checks the whitelist and proxies if allowed.

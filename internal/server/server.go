@@ -30,6 +30,8 @@ type Server struct {
 	dlMu            sync.Mutex
 	directConns     map[string]map[net.Conn]struct{} // remoteIP → active direct-forward conns
 	dcMu            sync.Mutex
+	bindErrors      map[int]string // port → bind error message for forwards that failed to start
+	beMu            sync.RWMutex
 	clients         *clientRegistry
 	limiter         *auth.RateLimiter
 	tun             *tunnel.Iface
@@ -119,6 +121,7 @@ func New(cfg *Config) (*Server, error) {
 		forwards:        fm,
 		directListeners: make(map[int]net.Listener),
 		directConns:     make(map[string]map[net.Conn]struct{}),
+		bindErrors:      make(map[int]string),
 		clients:         newClientRegistry(baseIP),
 		limiter:         auth.NewRateLimiter(),
 		acl:             aclEngine,
