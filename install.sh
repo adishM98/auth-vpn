@@ -6,10 +6,10 @@ set -euo pipefail
 #
 # Usage (one-liner, no Git or Go needed):
 #   Server:  curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash -s -- --server
-#   Client:  curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | bash
+#   Client:  curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
 #
 # Usage (from cloned repo):
-#   Dev / QA laptop:       ./install.sh
+#   Dev / QA laptop:       sudo ./install.sh
 #   VM / server (root):    sudo ./install.sh --server
 #   Custom port:           sudo ./install.sh --server --port=8888
 # ─────────────────────────────────────────────────────────────────────────────
@@ -229,18 +229,24 @@ install_binary() {
   local src="$1"
   local dest="${INSTALL_DIR}/${BINARY}"
 
-  if [[ ! -w "$INSTALL_DIR" ]]; then
-    fail "Cannot write to ${INSTALL_DIR}. Re-run with sudo:\n    sudo ./install.sh${MODE:+ --$MODE}"
+  if [[ -w "$INSTALL_DIR" ]]; then
+    cp "$src" "$dest"
+    chmod +x "$dest"
+  elif command -v sudo &>/dev/null; then
+    # Not writable as current user — try sudo (prompts via /dev/tty, works in pipes).
+    sudo cp "$src" "$dest" \
+      || fail "sudo cp failed. Cannot install to ${INSTALL_DIR}."
+    sudo chmod +x "$dest"
+  else
+    fail "Cannot write to ${INSTALL_DIR} and sudo is not available.\n    Install manually: cp $src /usr/local/bin/auth-vpn"
   fi
 
-  cp "$src" "$dest"
-  chmod +x "$dest"
   ok "Installed → ${dest}"
 }
 
 # ── server setup ──────────────────────────────────────────────────────────────
 setup_server() {
-  [[ $EUID -ne 0 ]] && fail "Server setup requires root. Run:\n    sudo ./install.sh --server"
+  [[ $EUID -ne 0 ]] && fail "Server setup requires root. Run:\n    curl -fsSL https://github.com/${REPO}/releases/latest/download/install.sh | sudo bash -s -- --server"
 
   echo ""
   bold "Configuring auth-vpn server..."
@@ -292,6 +298,11 @@ main() {
   bold "  auth-vpn installer"
   line
   echo ""
+
+  # Server mode always requires root; fail early with the correct command.
+  if [[ "$MODE" == "server" && $EUID -ne 0 ]]; then
+    fail "Server install requires root. Run:\n    curl -fsSL https://github.com/${REPO}/releases/latest/download/install.sh | sudo bash -s -- --server"
+  fi
 
   local platform
   platform="$(detect_platform)"

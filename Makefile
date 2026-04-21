@@ -1,6 +1,6 @@
 BINARY  = auth-vpn
 REPO    = adishM98/auth-vpn
-VERSION ?= 1.1.10
+VERSION ?= 1.1.11
 DIST    = dist
 LDFLAGS = -ldflags="-s -w -X main.Version=v$(VERSION)"
 
@@ -79,7 +79,7 @@ release: build-all
 	@command -v gh >/dev/null 2>&1 || { echo "Error: gh CLI not found. Install from https://cli.github.com"; exit 1; }
 	gh release create v$(VERSION) \
 	  --title "auth-vpn v$(VERSION)" \
-	  --notes "## Installation\n\n**Server (on VM with containers):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | sudo bash -s -- --server\n\`\`\`\n\n**Client (dev/QA laptop or another VM):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | bash\n\`\`\`\n\nSee [INSTALL.md](https://github.com/$(REPO)/blob/main/INSTALL.md) for full setup guide." \
+	  --notes "## Installation\n\n**Server (on VM with containers):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | sudo bash -s -- --server\n\`\`\`\n\n**Client (dev/QA laptop or another VM):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | sudo bash\n\`\`\`\n\nSee [INSTALL.md](https://github.com/$(REPO)/blob/main/INSTALL.md) for full setup guide." \
 	  $(DIST)/$(BINARY)-linux-amd64 \
 	  $(DIST)/$(BINARY)-darwin-amd64 \
 	  $(DIST)/$(BINARY)-darwin-arm64 \
