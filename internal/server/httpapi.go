@@ -15,9 +15,9 @@ func (s *Server) startHTTPAPI() {
 
 	mux.HandleFunc("/metrics", s.withAuth(s.handleMetrics))
 	mux.HandleFunc("/health", s.withAuth(s.handleHealth))
-	mux.HandleFunc("/api/clients", s.handleAPIClients)
-	mux.HandleFunc("/api/tokens", s.handleAPITokens)
-	mux.HandleFunc("/api/tokens/", s.handleAPITokenDelete)
+	mux.HandleFunc("/api/clients", s.withAuth(s.handleAPIClients))
+	mux.HandleFunc("/api/tokens", s.withAuth(s.handleAPITokens))
+	mux.HandleFunc("/api/tokens/", s.withAuth(s.handleAPITokenDelete))
 	mux.HandleFunc("/api/whitelist", s.withAuth(s.handleAPIWhitelist))
 	mux.HandleFunc("/api/whitelist/", s.withAuth(s.handleAPIWhitelistDelete))
 	mux.HandleFunc("/api/forwards", s.withAuth(s.handleAPIForwards))
@@ -64,18 +64,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIClients(w http.ResponseWriter, r *http.Request) {
-	if !s.checkAPIKey(w, r) {
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"clients": s.clients.Snapshot(),
 	})
 }
 
 func (s *Server) handleAPITokens(w http.ResponseWriter, r *http.Request) {
-	if !s.checkAPIKey(w, r) {
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -102,9 +96,6 @@ func (s *Server) handleAPITokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPITokenDelete(w http.ResponseWriter, r *http.Request) {
-	if !s.checkAPIKey(w, r) {
-		return
-	}
 	if r.Method != http.MethodDelete {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return

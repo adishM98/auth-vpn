@@ -225,7 +225,7 @@ func (s *Server) TokenManager() *auth.Manager { return s.tokens }
 func (s *Server) handleConn(conn net.Conn) {
 	s.wg.Add(1)
 	defer s.wg.Done()
-	remoteIP := strings.Split(conn.RemoteAddr().String(), ":")[0]
+	remoteIP, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
 	defer conn.Close()
 
 	if s.limiter.IsBanned(remoteIP) {

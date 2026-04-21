@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+var (
+	vpnSubnet    = func() *net.IPNet { _, n, _ := net.ParseCIDR("10.8.0.0/24"); return n }()
+	localhostNet = func() *net.IPNet { _, n, _ := net.ParseCIDR("127.0.0.0/8"); return n }()
+)
+
+// isAllowedProbeHost restricts /tooljet/probe to VPN-internal IPs and localhost only,
+// preventing SSRF to cloud metadata endpoints or arbitrary internet hosts.
+func isAllowedProbeHost(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return vpnSubnet.Contains(ip) || localhostNet.Contains(ip)
+}
+
 // handleToolJet serves the /tooljet/* routes used by the ToolJet datasource plugin.
 // Routes:
 //
@@ -41,6 +56,10 @@ func (s *Server) handleToolJet(w http.ResponseWriter, r *http.Request) {
 		port := r.URL.Query().Get("port")
 		if host == "" || port == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "host and port required"})
+			return
+		}
+		if !isAllowedProbeHost(host) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "host not allowed: only VPN subnet (10.8.0.0/24) and localhost are permitted"})
 			return
 		}
 		addr := net.JoinHostPort(host, port)

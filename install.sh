@@ -177,7 +177,7 @@ build_from_source() {
   (
     cd "$SCRIPT_DIR"
     GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
-      go build -ldflags="-s -w" \
+      go build -ldflags="-s -w -X main.Version=${VERSION}" \
       -o "dist/${BINARY}-${platform}" \
       ./cmd
   )

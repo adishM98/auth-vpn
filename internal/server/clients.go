@@ -34,28 +34,32 @@ func (c *connectedClient) Stale(d time.Duration) bool {
 type clientRegistry struct {
 	mu      sync.RWMutex
 	clients map[string]*connectedClient // keyed by tunnel IP
-	nextIP  uint8                        // next host octet to assign (starts at 2)
 	baseIP  string                       // e.g. "10.0.0"
 }
 
 func newClientRegistry(baseIP string) *clientRegistry {
 	return &clientRegistry{
 		clients: make(map[string]*connectedClient),
-		nextIP:  2,
 		baseIP:  baseIP,
 	}
 }
 
-// Assign allocates a tunnel IP and registers the client. Returns the client.
+// Assign allocates the lowest available tunnel IP and registers the client.
 func (r *clientRegistry) Assign(name string, conn net.Conn) (*connectedClient, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.nextIP > 254 {
+	var ip string
+	for octet := uint8(2); octet <= 254; octet++ {
+		candidate := fmt.Sprintf("%s.%d", r.baseIP, octet)
+		if _, taken := r.clients[candidate]; !taken {
+			ip = candidate
+			break
+		}
+	}
+	if ip == "" {
 		return nil, fmt.Errorf("tunnel IP pool exhausted")
 	}
-	ip := fmt.Sprintf("%s.%d", r.baseIP, r.nextIP)
-	r.nextIP++
 
 	c := &connectedClient{
 		name:        name,

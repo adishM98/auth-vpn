@@ -55,9 +55,22 @@ func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 	if err != nil {
 		return "", "", "", fmt.Errorf("token manager: %w", err)
 	}
-	rawToken, err = tm.Add("admin", nil, false)
-	if err != nil {
-		return "", "", "", fmt.Errorf("create initial token: %w", err)
+	// Only create the initial token on a truly fresh install.
+	// If tokens.yaml already exists with an "admin" token, don't add a duplicate.
+	hasAdmin := false
+	for _, t := range tm.List() {
+		if t.Name == "admin" {
+			hasAdmin = true
+			break
+		}
+	}
+	if !hasAdmin {
+		rawToken, err = tm.Add("admin", nil, false)
+		if err != nil {
+			return "", "", "", fmt.Errorf("create initial token: %w", err)
+		}
+	} else {
+		rawToken = "<existing — run: auth-vpn server tokens list>"
 	}
 
 	apiKey, err = generateAPIKey()
