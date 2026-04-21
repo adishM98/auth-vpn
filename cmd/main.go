@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -15,7 +16,11 @@ import (
 	"github.com/adishM98/auth-vpn/internal/auth"
 	"github.com/adishM98/auth-vpn/internal/client"
 	"github.com/adishM98/auth-vpn/internal/server"
+	"github.com/adishM98/auth-vpn/internal/updater"
 )
+
+// Version is set at build time via -ldflags.
+var Version = "dev"
 
 func main() {
 	if err := rootCmd().Execute(); err != nil {
@@ -30,7 +35,7 @@ func rootCmd() *cobra.Command {
 		Use:   "auth-vpn",
 		Short: "Lightweight self-hosted VPN tunnel for developers and CI/CD",
 	}
-	root.AddCommand(serverCmd(), connectCmd(), disconnectCmd(), statusCmd(), profileCmd())
+	root.AddCommand(serverCmd(), connectCmd(), disconnectCmd(), statusCmd(), profileCmd(), versionCmd(), updateCmd())
 	return root
 }
 
@@ -325,14 +330,15 @@ func connectCmd() *cobra.Command {
 				Reconnect:  reconnect,
 			}
 
-			// If no token flag, check if target is a saved profile name.
+			// If no token, check for a saved profile first, then try without token
+			// (server will accept if the client IP is whitelisted).
 			if token == "" {
 				p, err := client.LoadProfile(target)
 				if err == nil {
 					opts.ServerAddr = p.Host
 					opts.Token = p.Token
 				} else {
-					return fmt.Errorf("no --token provided and profile %q not found", target)
+					opts.ServerAddr = target // no token — server checks IP whitelist
 				}
 			} else {
 				opts.ServerAddr = target
@@ -523,6 +529,30 @@ func profileListCmd() *cobra.Command {
 			for _, p := range profiles {
 				fmt.Printf("%-20s  %s\n", p.Name, p.Host)
 			}
+		},
+	}
+}
+
+// ─── version ──────────────────────────────────────────────────────────────────
+
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version information",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("auth-vpn %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
+		},
+	}
+}
+
+// ─── update ───────────────────────────────────────────────────────────────────
+
+func updateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "update",
+		Short: "Update auth-vpn to the latest release",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return updater.Run(Version)
 		},
 	}
 }

@@ -97,6 +97,42 @@
   </section>
 
   <section>
+    <h2>Direct Forwards</h2>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">
+      Expose backend ports directly — no auth-vpn client needed.
+      Only IPs in the whitelist below can connect.
+    </p>
+    <form id="forward-form" style="margin-bottom:12px;">
+      <input type="number" id="fwd-port" placeholder="Listen port (e.g. 5432)" min="1" max="65535" required style="width:220px;">
+      <input type="text"   id="fwd-target" placeholder="Target (e.g. 127.0.0.1:5432)" required style="width:220px;">
+      <button type="submit" class="btn btn-primary">Add</button>
+    </form>
+    <div id="fwd-error" style="color:var(--red);font-size:12px;margin-bottom:8px;display:none;"></div>
+    <table>
+      <thead><tr><th>Listen Port</th><th>→ Target</th><th>Added</th><th></th></tr></thead>
+      <tbody id="forwards-body"><tr><td class="empty" colspan="4">loading...</td></tr></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>IP Whitelist</h2>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">
+      Devices connecting from these IPs or CIDRs are admitted without a token.
+      Use for VMs and services with static public IPs.
+    </p>
+    <form id="whitelist-form" style="margin-bottom:12px;">
+      <input type="text" id="wl-name" placeholder="tooljet-vm" required>
+      <input type="text" id="wl-ip" placeholder="1.2.3.4 or 10.0.0.0/24" required style="width:200px;">
+      <button type="submit" class="btn btn-primary">Add</button>
+    </form>
+    <div id="wl-error" style="color:var(--red);font-size:12px;margin-bottom:8px;display:none;"></div>
+    <table>
+      <thead><tr><th>Name</th><th>IP / CIDR</th><th>Added</th><th></th></tr></thead>
+      <tbody id="whitelist-body"><tr><td class="empty" colspan="4">loading...</td></tr></tbody>
+    </table>
+  </section>
+
+  <section>
     <h2>Tokens</h2>
     <form id="token-form" style="margin-bottom:12px;">
       <input type="text" id="token-name" placeholder="device-name" required>
@@ -140,10 +176,12 @@ const API_KEY = new URLSearchParams(window.location.search).get('key') || '';
 
 async function refresh() {
   try {
-    const [health, clients, tokens] = await Promise.all([
+    const [health, clients, tokens, whitelist, forwards] = await Promise.all([
       fetchJSON('/health'),
       fetchJSON('/api/clients'),
       fetchJSON('/api/tokens'),
+      fetchJSON('/api/whitelist'),
+      fetchJSON('/api/forwards'),
     ]);
 
     document.getElementById('s-active').textContent = health.clients;
@@ -173,6 +211,32 @@ async function refresh() {
           <td>${fmt.bytes(c.bytes_in||0)}</td>
           <td>${fmt.bytes(c.bytes_out||0)}</td>
           <td><span class="badge badge-green">online</span></td>
+        </tr>`).join('');
+    }
+
+    const fb = document.getElementById('forwards-body');
+    if (!forwards.forwards || forwards.forwards.length === 0) {
+      fb.innerHTML = '<tr><td class="empty" colspan="4">no forwards configured</td></tr>';
+    } else {
+      fb.innerHTML = forwards.forwards.map(f => `
+        <tr>
+          <td class="mono">:${f.listen_port}</td>
+          <td class="mono">${esc(f.target)}</td>
+          <td>${fmt.dt(f.created_at)}</td>
+          <td><button class="btn btn-danger" onclick="removeForward(${f.listen_port})">Remove</button></td>
+        </tr>`).join('');
+    }
+
+    const wb = document.getElementById('whitelist-body');
+    if (!whitelist.whitelist || whitelist.whitelist.length === 0) {
+      wb.innerHTML = '<tr><td class="empty" colspan="4">no entries</td></tr>';
+    } else {
+      wb.innerHTML = whitelist.whitelist.map(e => `
+        <tr>
+          <td>${esc(e.name)}</td>
+          <td class="mono">${esc(e.ip)}</td>
+          <td>${fmt.dt(e.created_at)}</td>
+          <td><button class="btn btn-danger" onclick="removeWhitelist('${esc(e.name)}')">Remove</button></td>
         </tr>`).join('');
     }
 
@@ -232,6 +296,70 @@ document.getElementById('token-form').addEventListener('submit', async e => {
     box.textContent = data.error || 'error';
   }
   refresh();
+});
+
+async function removeForward(port) {
+  if (!confirm('Remove forward for port ' + port + '?')) return;
+  await fetch('/api/forwards/' + port, {
+    method: 'DELETE',
+    headers: API_KEY ? {'Authorization':'Bearer '+API_KEY} : {},
+  });
+  refresh();
+}
+
+document.getElementById('forward-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const listenPort = parseInt(document.getElementById('fwd-port').value);
+  const target     = document.getElementById('fwd-target').value.trim();
+  const errBox     = document.getElementById('fwd-error');
+  errBox.style.display = 'none';
+  const r = await fetch('/api/forwards', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json',
+                ...(API_KEY ? {'Authorization':'Bearer '+API_KEY} : {}) },
+    body: JSON.stringify({ listen_port: listenPort, target }),
+  });
+  const data = await r.json();
+  if (r.ok) {
+    document.getElementById('fwd-port').value   = '';
+    document.getElementById('fwd-target').value = '';
+    refresh();
+  } else {
+    errBox.style.display = 'block';
+    errBox.textContent = data.error || 'error';
+  }
+});
+
+async function removeWhitelist(name) {
+  if (!confirm('Remove whitelist entry "' + name + '"?')) return;
+  await fetch('/api/whitelist/' + encodeURIComponent(name), {
+    method: 'DELETE',
+    headers: API_KEY ? {'Authorization':'Bearer '+API_KEY} : {},
+  });
+  refresh();
+}
+
+document.getElementById('whitelist-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('wl-name').value.trim();
+  const ip   = document.getElementById('wl-ip').value.trim();
+  const errBox = document.getElementById('wl-error');
+  errBox.style.display = 'none';
+  const r = await fetch('/api/whitelist', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json',
+                ...(API_KEY ? {'Authorization':'Bearer '+API_KEY} : {}) },
+    body: JSON.stringify({ name, ip }),
+  });
+  const data = await r.json();
+  if (r.ok) {
+    document.getElementById('wl-name').value = '';
+    document.getElementById('wl-ip').value  = '';
+    refresh();
+  } else {
+    errBox.style.display = 'block';
+    errBox.textContent = data.error || 'error';
+  }
 });
 
 refresh();

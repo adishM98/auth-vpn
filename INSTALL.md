@@ -207,46 +207,6 @@ status: connected
 
 ---
 
-## Part 2b — Docker sidecar (proxy mode, no root, no image changes)
-
-Use this when you can't or don't want to modify the app's Docker image.
-auth-vpn runs as a sidecar container sharing the main container's network
-namespace — so `127.0.0.1` inside the app resolves to auth-vpn's listeners.
-
-```yaml
-services:
-  app:
-    image: your-app-image   # no changes needed
-    env_file: .env
-
-  auth-vpn:
-    image: adishm98/auth-vpn:latest
-    network_mode: "service:app"   # shares app's loopback
-    restart: always
-    depends_on:
-      - app
-    environment:
-      VPN_HOST: "20.98.154.174:7777"
-      VPN_TOKEN: "${VPN_TOKEN}"
-      VPN_FORWARDS: "5432:10.8.0.1:5432,3306:10.8.0.1:3306"
-```
-
-`.env` (never commit this file):
-```
-VPN_TOKEN=abc123xyz
-```
-
-| Env var | Required | Description |
-|---|---|---|
-| `VPN_HOST` | Yes | Server `ip:port`, e.g. `20.98.154.174:7777` |
-| `VPN_TOKEN` | Yes | Token from `auth-vpn server tokens add` |
-| `VPN_FORWARDS` | Yes | Comma-separated `localPort:remoteHost:remotePort` |
-| `VPN_INSECURE` | No | `true` to skip TLS verification (dev only) |
-
-Configure the app's datasource/DB connection to use `host: 127.0.0.1`.
-
----
-
 ## Part 3 — Other VMs (ToolJet VM, test VMs, etc.)
 
 ```bash
@@ -297,6 +257,8 @@ The server exposes a live dashboard at `http://localhost:9100/ui`:
 - Active client count, uptime, bytes transferred
 - Connected clients table (name, tunnel IP, connected at)
 - Token management — create/revoke from the browser
+- **IP Whitelist** — add/remove IPs and CIDRs that bypass token auth
+- **Direct Forwards** — expose backend ports to whitelisted IPs, no client needed
 
 **Access remotely via SSH tunnel:**
 
@@ -307,7 +269,62 @@ ssh -L 9100:localhost:9100 user@<vm-ip>
 
 ---
 
-## Part 6 — ACL rules (optional, restrict per device)
+## Part 6 — IP whitelist (VMs and static IPs, no token needed)
+
+Whitelist IPs or CIDR ranges so those machines connect without a token.
+Intended for VMs, PaaS services, and CI runners with known static IPs.
+
+**From the dashboard** (`http://localhost:9100/ui` → IP Whitelist):
+- Enter a name and IP or CIDR → click Add
+- Changes take effect instantly
+
+**Use cases:**
+
+| Machine | What to whitelist |
+|---|---|
+| Azure / AWS / GCP VM | Private IP (same VNet) or public IP |
+| Render / Railway | Published outbound CIDR from their dashboard |
+| Office network | Office public IP |
+| Dev/QA laptops | Use tokens instead — home IPs change |
+
+Once whitelisted, the machine can connect with no `--token`:
+```bash
+auth-vpn connect 20.98.154.174:7777   # IP is checked, token skipped
+```
+
+---
+
+## Part 7 — Direct forwards (no auth-vpn client, whitelist only)
+
+Expose a backend service port directly to whitelisted IPs.
+The external machine uses a plain TCP connection — **no auth-vpn binary needed**.
+
+**From the dashboard** (→ Direct Forwards):
+- Enter listen port (e.g. `5432`) and target (e.g. `127.0.0.1:5432`) → click Add
+- The listener starts immediately — no restart needed
+
+**Example: ToolJet VM accessing postgres without installing auth-vpn:**
+
+1. Whitelist the ToolJet VM's public IP (Part 6 above)
+2. Add a direct forward: `5432 → 127.0.0.1:5432`
+3. Open port 5432 in your firewall/NSG for that IP only
+4. Configure the ToolJet datasource:
+   ```
+   Host: 20.98.154.174   ← auth-vpn server public IP
+   Port: 5432
+   ```
+
+Connection flow:
+```
+ToolJet VM → TCP :5432 → auth-vpn server
+  → IP whitelisted? YES → proxy to 127.0.0.1:5432 → postgres
+```
+
+> Only whitelisted IPs reach the backend — all other connections are dropped immediately.
+
+---
+
+## Part 8 — ACL rules (optional, restrict per device)
 
 Edit `/etc/auth-vpn/acl.yaml`:
 
@@ -338,7 +355,7 @@ sudo systemctl kill -s HUP auth-vpn
 
 ---
 
-## Part 7 — Server clients list (run on the server VM)
+## Part 9 — Server clients list (run on the server VM)
 
 See who is currently connected:
 

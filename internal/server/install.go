@@ -22,13 +22,15 @@ import (
 )
 
 const (
-	ConfigDir   = "/etc/auth-vpn"
-	TLSDir      = "/etc/auth-vpn/tls"
-	CertFile    = "/etc/auth-vpn/tls/cert.pem"
-	KeyFile     = "/etc/auth-vpn/tls/key.pem"
-	TokensFile  = "/etc/auth-vpn/tokens.yaml"
-	ServiceFile = "/etc/systemd/system/auth-vpn.service"
-	SocketFile  = "/var/run/auth-vpn.sock"
+	ConfigDir     = "/etc/auth-vpn"
+	TLSDir        = "/etc/auth-vpn/tls"
+	CertFile      = "/etc/auth-vpn/tls/cert.pem"
+	KeyFile       = "/etc/auth-vpn/tls/key.pem"
+	TokensFile    = "/etc/auth-vpn/tokens.yaml"
+	WhitelistFile = "/etc/auth-vpn/whitelist.json"
+	ForwardsFile  = "/etc/auth-vpn/forwards.json"
+	ServiceFile   = "/etc/systemd/system/auth-vpn.service"
+	SocketFile    = "/var/run/auth-vpn.sock"
 )
 
 // Install sets up the server: TLS cert, initial token, server.yaml, acl.yaml, systemd service.

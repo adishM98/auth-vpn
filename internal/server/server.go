@@ -22,15 +22,19 @@ const tunBufSize = 65535
 
 // Server is the auth-vpn tunnel server.
 type Server struct {
-	cfg     *Config
-	tokens  *auth.Manager
-	clients *clientRegistry
-	limiter *auth.RateLimiter
-	tun     *tunnel.Iface
-	acl     *acl.Engine
-	metrics *Metrics
-	done    chan struct{}
-	wg      sync.WaitGroup
+	cfg             *Config
+	tokens          *auth.Manager
+	whitelist       *WhitelistManager
+	forwards        *ForwardsManager
+	directListeners map[int]net.Listener
+	dlMu            sync.Mutex
+	clients         *clientRegistry
+	limiter         *auth.RateLimiter
+	tun             *tunnel.Iface
+	acl             *acl.Engine
+	metrics         *Metrics
+	done            chan struct{}
+	wg              sync.WaitGroup
 }
 
 // Config holds server runtime configuration.
@@ -86,6 +90,18 @@ func New(cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("load tokens: %w", err)
 	}
 
+	wm, err := NewWhitelistManager(WhitelistFile)
+	if err != nil {
+		log.Printf("warning: load whitelist: %v (IP whitelist disabled)", err)
+		wm, _ = NewWhitelistManager("")
+	}
+
+	fm, err := NewForwardsManager(ForwardsFile)
+	if err != nil {
+		log.Printf("warning: load forwards: %v (direct forwards disabled)", err)
+		fm, _ = NewForwardsManager("")
+	}
+
 	var aclEngine *acl.Engine
 	if cfg.ACLPath != "" {
 		aclEngine, err = acl.Load(cfg.ACLPath)
@@ -95,13 +111,16 @@ func New(cfg *Config) (*Server, error) {
 	}
 
 	return &Server{
-		cfg:     cfg,
-		tokens:  tm,
-		clients: newClientRegistry(baseIP),
-		limiter: auth.NewRateLimiter(),
-		acl:     aclEngine,
-		metrics: newMetrics(),
-		done:    make(chan struct{}),
+		cfg:             cfg,
+		tokens:          tm,
+		whitelist:       wm,
+		forwards:        fm,
+		directListeners: make(map[int]net.Listener),
+		clients:         newClientRegistry(baseIP),
+		limiter:         auth.NewRateLimiter(),
+		acl:             aclEngine,
+		metrics:         newMetrics(),
+		done:            make(chan struct{}),
 	}, nil
 }
 
@@ -131,6 +150,7 @@ func (s *Server) Start() error {
 	go s.routeFromTUN()
 	go s.startReaper()
 	go s.startControlSocket()
+	go s.startDirectListeners()
 
 	if s.cfg.MetricsAddr != "" {
 		go s.startHTTPAPI()
@@ -230,39 +250,47 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
-	tok, err := s.tokens.Validate(req.Token)
-	if err != nil {
-		s.limiter.RecordFailure(remoteIP)
-		s.metrics.IncAuthFailure()
-		log.Printf("auth failed from %s: %v", remoteIP, err)
-		_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
-			protocol.Encode(protocol.AuthFailResponse{Reason: err.Error()}))
-		return
-	}
-	s.limiter.Reset(remoteIP)
+	// Check IP whitelist first — whitelisted IPs connect without a token.
+	var clientName string
+	if wlName, ok := s.whitelist.Contains(remoteIP); ok {
+		clientName = wlName
+		log.Printf("whitelisted IP %s connected as %q", remoteIP, clientName)
+	} else {
+		tok, err := s.tokens.Validate(req.Token)
+		if err != nil {
+			s.limiter.RecordFailure(remoteIP)
+			s.metrics.IncAuthFailure()
+			log.Printf("auth failed from %s: %v", remoteIP, err)
+			_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
+				protocol.Encode(protocol.AuthFailResponse{Reason: err.Error()}))
+			return
+		}
+		s.limiter.Reset(remoteIP)
 
-	// P0-A: prevent concurrent use of the same token.
-	if !s.tokens.TryClaim(req.Token) {
-		log.Printf("token %q already in use, rejecting %s", tok.Name, remoteIP)
-		_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
-			protocol.Encode(protocol.AuthFailResponse{Reason: "token already in use"}))
-		return
+		// Prevent concurrent use of the same token.
+		if !s.tokens.TryClaim(req.Token) {
+			log.Printf("token %q already in use, rejecting %s", tok.Name, remoteIP)
+			_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
+				protocol.Encode(protocol.AuthFailResponse{Reason: "token already in use"}))
+			return
+		}
+		defer s.tokens.Unclaim(req.Token)
+		clientName = tok.Name
 	}
-	defer s.tokens.Unclaim(req.Token)
 
 	// Proxy mode: no TUN, no IP assignment — just TCP port forwarding.
 	if req.Mode == "proxy" {
 		if err := tunnel.WriteFrame(conn, protocol.TypeAuthOK, protocol.Encode(protocol.AuthOKResponse{})); err != nil {
-			log.Printf("send AUTH_OK (proxy) to %s: %v", tok.Name, err)
+			log.Printf("send AUTH_OK (proxy) to %s: %v", clientName, err)
 			return
 		}
-		s.handleProxyConn(conn, tok.Name)
+		s.handleProxyConn(conn, clientName)
 		return
 	}
 
-	client, err := s.clients.Assign(tok.Name, conn)
+	client, err := s.clients.Assign(clientName, conn)
 	if err != nil {
-		log.Printf("assign IP for %s: %v", tok.Name, err)
+		log.Printf("assign IP for %s: %v", clientName, err)
 		_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
 			protocol.Encode(protocol.AuthFailResponse{Reason: "no IP available"}))
 		return
@@ -278,10 +306,10 @@ func (s *Server) handleConn(conn net.Conn) {
 		Subnet:   s.cfg.Subnet,
 	}
 	if err := tunnel.WriteFrame(conn, protocol.TypeAuthOK, protocol.Encode(resp)); err != nil {
-		log.Printf("send AUTH_OK to %s: %v", tok.Name, err)
+		log.Printf("send AUTH_OK to %s: %v", clientName, err)
 		return
 	}
-	log.Printf("client connected: %s → %s", tok.Name, client.ip)
+	log.Printf("client connected: %s → %s", clientName, client.ip)
 
 	// Forward TCP → TUN.
 	go s.forwardToTUN(client)
@@ -294,7 +322,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		client.bytesOut.Add(int64(len(pkt)))
 		s.metrics.AddBytesOut(len(pkt))
 	}
-	log.Printf("client disconnected: %s", tok.Name)
+	log.Printf("client disconnected: %s", clientName)
 }
 
 // forwardToTUN reads IP packets from a client TCP conn and writes them to TUN.

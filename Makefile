@@ -1,34 +1,34 @@
-BINARY      = auth-vpn
-REPO        = adishM98/auth-vpn
-DOCKER_REPO = adishm98/auth-vpn
-VERSION    ?= 1.0.2
-DIST        = dist
+BINARY  = auth-vpn
+REPO    = adishM98/auth-vpn
+VERSION ?= 1.0.2
+DIST    = dist
+LDFLAGS = -ldflags="-s -w -X main.Version=v$(VERSION)"
 
 .PHONY: build-linux build-mac-intel build-mac-arm build-windows build-all \
         install install-server deploy deploy-client \
-        docker-build docker-push release clean
+        release clean
 
 # ── build ─────────────────────────────────────────────────────────────────────
 
 build-linux:
 	@mkdir -p $(DIST)
 	GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 \
-	  go build -ldflags="-s -w" -o $(DIST)/$(BINARY)-linux-amd64  ./cmd
+	  go build $(LDFLAGS) -o $(DIST)/$(BINARY)-linux-amd64  ./cmd
 
 build-mac-intel:
 	@mkdir -p $(DIST)
 	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
-	  go build -ldflags="-s -w" -o $(DIST)/$(BINARY)-darwin-amd64 ./cmd
+	  go build $(LDFLAGS) -o $(DIST)/$(BINARY)-darwin-amd64 ./cmd
 
 build-mac-arm:
 	@mkdir -p $(DIST)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
-	  go build -ldflags="-s -w" -o $(DIST)/$(BINARY)-darwin-arm64 ./cmd
+	  go build $(LDFLAGS) -o $(DIST)/$(BINARY)-darwin-arm64 ./cmd
 
 build-windows:
 	@mkdir -p $(DIST)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-	  go build -ldflags="-s -w" -o $(DIST)/$(BINARY)-windows-amd64.exe ./cmd
+	  go build $(LDFLAGS) -o $(DIST)/$(BINARY)-windows-amd64.exe ./cmd
 
 build-all: build-linux build-mac-intel build-mac-arm build-windows
 
@@ -67,20 +67,6 @@ endif
 	ssh $(SSH_OPTS) $(VM) "cd ~/auth-vpn-install && sudo bash install.sh --server --port=$(PORT)"
 	@echo "✓ Done. tj-vpn server is running on $(VM):$(PORT)"
 
-# ── Docker image ──────────────────────────────────────────────────────────────
-#
-# Usage:
-#   make docker-build           → build image tagged as adishm98/auth-vpn:latest + version
-#   make docker-push            → push to Docker Hub
-#   make docker-build docker-push VERSION=1.2.3
-
-docker-build:
-	docker build -t $(DOCKER_REPO):latest -t $(DOCKER_REPO):v$(VERSION) .
-
-docker-push:
-	docker push $(DOCKER_REPO):latest
-	docker push $(DOCKER_REPO):v$(VERSION)
-
 # ── GitHub release ────────────────────────────────────────────────────────────
 #
 # Usage:
@@ -89,21 +75,18 @@ docker-push:
 #
 # Requires: gh CLI authenticated (gh auth login)
 
-release: build-all docker-build
+release: build-all
 	@command -v gh >/dev/null 2>&1 || { echo "Error: gh CLI not found. Install from https://cli.github.com"; exit 1; }
 	gh release create v$(VERSION) \
 	  --title "auth-vpn v$(VERSION)" \
-	  --notes "## Installation\n\n**Server (on VM with containers):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | sudo bash -s -- --server\n\`\`\`\n\n**Client (dev/QA laptop or another VM):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | bash\n\`\`\`\n\n**Docker sidecar:**\n\`\`\`yaml\nimage: $(DOCKER_REPO):v$(VERSION)\n\`\`\`\n\nSee [INSTALL.md](https://github.com/$(REPO)/blob/main/INSTALL.md) for full setup guide." \
+	  --notes "## Installation\n\n**Server (on VM with containers):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | sudo bash -s -- --server\n\`\`\`\n\n**Client (dev/QA laptop or another VM):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | bash\n\`\`\`\n\nSee [INSTALL.md](https://github.com/$(REPO)/blob/main/INSTALL.md) for full setup guide." \
 	  $(DIST)/$(BINARY)-linux-amd64 \
 	  $(DIST)/$(BINARY)-darwin-amd64 \
 	  $(DIST)/$(BINARY)-darwin-arm64 \
 	  $(DIST)/$(BINARY)-windows-amd64.exe \
 	  install.sh
-	docker push $(DOCKER_REPO):latest
-	docker push $(DOCKER_REPO):v$(VERSION)
 	@echo "✓ Released v$(VERSION)"
-	@echo "  GitHub  → https://github.com/$(REPO)/releases/tag/v$(VERSION)"
-	@echo "  Docker  → https://hub.docker.com/r/$(DOCKER_REPO)"
+	@echo "  GitHub → https://github.com/$(REPO)/releases/tag/v$(VERSION)"
 
 ## Deploy as CLIENT on a remote Linux VM (connects to a server, does not become one)
 deploy-client: build-linux

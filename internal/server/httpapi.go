@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +18,10 @@ func (s *Server) startHTTPAPI() {
 	mux.HandleFunc("/api/clients", s.handleAPIClients)
 	mux.HandleFunc("/api/tokens", s.handleAPITokens)
 	mux.HandleFunc("/api/tokens/", s.handleAPITokenDelete)
+	mux.HandleFunc("/api/whitelist", s.withAuth(s.handleAPIWhitelist))
+	mux.HandleFunc("/api/whitelist/", s.withAuth(s.handleAPIWhitelistDelete))
+	mux.HandleFunc("/api/forwards", s.withAuth(s.handleAPIForwards))
+	mux.HandleFunc("/api/forwards/", s.withAuth(s.handleAPIForwardsDelete))
 	mux.HandleFunc("/tooljet/", s.handleToolJet)
 	mux.HandleFunc("/ui", s.withAuth(s.handleWebUI))
 	mux.HandleFunc("/", s.withAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +120,98 @@ func (s *Server) handleAPITokenDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"revoked": name})
+}
+
+func (s *Server) handleAPIWhitelist(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"whitelist": s.whitelist.List(),
+		})
+	case http.MethodPost:
+		var body struct {
+			Name string `json:"name"`
+			IP   string `json:"ip"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.IP == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and ip required"})
+			return
+		}
+		if err := s.whitelist.Add(body.Name, body.IP); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]string{"name": body.Name, "ip": body.IP})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPIWhitelistDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/api/whitelist/")
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
+		return
+	}
+	if err := s.whitelist.Remove(name); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"removed": name})
+}
+
+func (s *Server) handleAPIForwards(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"forwards": s.forwards.List(),
+		})
+	case http.MethodPost:
+		var body struct {
+			ListenPort int    `json:"listen_port"`
+			Target     string `json:"target"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ListenPort == 0 || body.Target == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "listen_port and target required"})
+			return
+		}
+		if err := s.forwards.Add(body.ListenPort, body.Target); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		// Start the listener immediately — no server restart needed.
+		go s.startDirectListener(DirectForward{ListenPort: body.ListenPort, Target: body.Target})
+		log.Printf("direct forward added: :%d → %s", body.ListenPort, body.Target)
+		writeJSON(w, http.StatusCreated, map[string]interface{}{
+			"listen_port": body.ListenPort, "target": body.Target,
+		})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPIForwardsDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	portStr := strings.TrimPrefix(r.URL.Path, "/api/forwards/")
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "valid port required"})
+		return
+	}
+	if err := s.forwards.Remove(port); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	s.stopDirectListener(port)
+	log.Printf("direct forward removed: :%d", port)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"removed_port": port})
 }
 
 // withAuth wraps a handler to require API key authentication when APIKey is set.
