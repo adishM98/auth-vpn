@@ -45,18 +45,27 @@ func (s *Server) startSSHServer() {
 				Extensions: map[string]string{"name": tok.Name},
 			}, nil
 		},
-		// Public key auth: SSH key registered via /api/ssh-keys.
+		// Public key auth: keys registered via /api/ssh-keys OR present in the
+		// system authorized_keys for the connecting user.
 		PublicKeyCallback: func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			name, ok := s.sshKeys.FindKey(key)
-			if !ok {
-				s.limiter.RecordFailure(c.RemoteAddr().String())
-				s.metrics.IncAuthFailure()
-				return nil, fmt.Errorf("unregistered public key")
+			// Check auth-vpn managed keys first.
+			if name, ok := s.sshKeys.FindKey(key); ok {
+				s.limiter.Reset(c.RemoteAddr().String())
+				return &ssh.Permissions{
+					Extensions: map[string]string{"name": name},
+				}, nil
 			}
-			s.limiter.Reset(c.RemoteAddr().String())
-			return &ssh.Permissions{
-				Extensions: map[string]string{"name": name},
-			}, nil
+			// Fall back to system authorized_keys — any key that can SSH into
+			// this host as the given user is trusted for tunneling too.
+			if checkSystemAuthorizedKeys(key, c.User()) {
+				s.limiter.Reset(c.RemoteAddr().String())
+				return &ssh.Permissions{
+					Extensions: map[string]string{"name": c.User()},
+				}, nil
+			}
+			s.limiter.RecordFailure(c.RemoteAddr().String())
+			s.metrics.IncAuthFailure()
+			return nil, fmt.Errorf("unauthorized key")
 		},
 	}
 	cfg.AddHostKey(hostKey)
@@ -153,6 +162,36 @@ func (s *Server) handleSSHTunnel(newChan ssh.NewChannel, clientName string) {
 	go func() { io.Copy(backend, ch); done <- struct{}{} }() //nolint:errcheck
 	go func() { io.Copy(ch, backend); done <- struct{}{} }() //nolint:errcheck
 	<-done
+}
+
+// checkSystemAuthorizedKeys returns true if key appears in the system
+// authorized_keys for the given username. This lets any key that can SSH into
+// the host also use auth-vpn's embedded SSH server without manual registration.
+func checkSystemAuthorizedKeys(key ssh.PublicKey, username string) bool {
+	fp := ssh.FingerprintSHA256(key)
+	candidates := []string{
+		fmt.Sprintf("/home/%s/.ssh/authorized_keys", username),
+		"/root/.ssh/authorized_keys",
+		"/etc/auth-vpn/authorized_keys", // optional dedicated file
+	}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		rest := data
+		for len(rest) > 0 {
+			parsed, _, _, remaining, err := ssh.ParseAuthorizedKey(rest)
+			rest = remaining
+			if err != nil {
+				break
+			}
+			if ssh.FingerprintSHA256(parsed) == fp {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isAllowedSSHTarget permits forwarding only to localhost and VPN subnet,
