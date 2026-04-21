@@ -4,15 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -113,71 +110,9 @@ func Run(currentVersion string) error {
 		return fmt.Errorf("replace binary (try with sudo): %w", err)
 	}
 
-	migrateServerConfig()
 	restartService()
 	fmt.Printf("updated to %s ✓\n", latest)
 	return nil
-}
-
-// serverConfigPath is the well-known location for the server config.
-const serverConfigPath = "/etc/auth-vpn/server.yaml"
-
-// serverConfigYAML is a minimal representation of server.yaml for migration purposes.
-type serverConfigYAML struct {
-	ForwardBindAddr string `yaml:"forward_bind_addr,omitempty"`
-}
-
-// migrateServerConfig auto-populates forward_bind_addr in server.yaml if missing.
-// Called after a binary update so the DevOps operator doesn't need to edit config manually.
-func migrateServerConfig() {
-	if runtime.GOOS != "linux" {
-		return
-	}
-
-	data, err := os.ReadFile(serverConfigPath)
-	if err != nil {
-		return // not a server install, skip silently
-	}
-
-	var cfg serverConfigYAML
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return
-	}
-	if cfg.ForwardBindAddr != "" {
-		return // already set
-	}
-
-	ip := outboundIP()
-	if ip == "" {
-		fmt.Println("warning: could not detect public IP for forward_bind_addr — set it manually in /etc/auth-vpn/server.yaml")
-		return
-	}
-
-	// Append the new key to the existing YAML rather than re-marshalling the
-	// whole file, so we don't lose any fields we don't know about.
-	line := fmt.Sprintf("\nforward_bind_addr: %s\n", ip)
-	f, err := os.OpenFile(serverConfigPath, os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		fmt.Printf("warning: update server.yaml: %v\n", err)
-		return
-	}
-	defer f.Close()
-	if _, err := f.WriteString(line); err != nil {
-		fmt.Printf("warning: update server.yaml: %v\n", err)
-		return
-	}
-	fmt.Printf("config migrated  : forward_bind_addr = %s\n", ip)
-}
-
-// outboundIP returns the local IP used for outbound traffic by probing a UDP
-// address. No data is actually sent.
-func outboundIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return ""
-	}
-	defer conn.Close()
-	return conn.LocalAddr().(*net.UDPAddr).IP.String()
 }
 
 // restartService restarts the auth-vpn systemd unit if it is currently active.

@@ -65,6 +65,38 @@ func (cfg *Config) applyDefaults() {
 	if cfg.MetricsAddr == "" {
 		cfg.MetricsAddr = DefaultMetricsAddr
 	}
+	if cfg.ForwardBindAddr == "" {
+		cfg.ForwardBindAddr = outboundIP()
+		if cfg.ForwardBindAddr != "" {
+			cfg.persistForwardBind()
+		}
+	}
+}
+
+// outboundIP returns the local IP the OS would use for outbound traffic.
+// No data is actually sent — the UDP dial just triggers a routing lookup.
+func outboundIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).IP.String()
+}
+
+// persistForwardBind writes forward_bind_addr back into server.yaml so the
+// auto-detected value survives restarts and is visible to operators.
+func (cfg *Config) persistForwardBind() {
+	sc, err := LoadServerConfig(ServerConfigFile)
+	if err != nil || sc.ForwardBindAddr != "" {
+		return // file missing or already set — nothing to do
+	}
+	sc.ForwardBindAddr = cfg.ForwardBindAddr
+	if err := SaveServerConfig(ServerConfigFile, sc); err != nil {
+		log.Printf("warning: persist forward_bind_addr: %v", err)
+		return
+	}
+	log.Printf("auto-detected forward_bind_addr: %s (saved to server.yaml)", cfg.ForwardBindAddr)
 }
 
 // baseIPFromSubnet derives "10.0.0" from "10.0.0.0/24".
