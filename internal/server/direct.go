@@ -108,7 +108,7 @@ func (s *Server) startDirectListeners() {
 
 // startDirectListener binds a port and proxies whitelisted connections to the target.
 func (s *Server) startDirectListener(f DirectForward) {
-	addr := fmt.Sprintf(":%d", f.ListenPort)
+	addr := fmt.Sprintf("%s:%d", s.cfg.ForwardBindAddr, f.ListenPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Printf("direct forward :%d → %s: listen error: %v", f.ListenPort, f.Target, err)

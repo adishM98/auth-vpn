@@ -14,12 +14,13 @@ const (
 
 // ServerConfig is the schema for /etc/auth-vpn/server.yaml.
 type ServerConfig struct {
-	Port        int    `yaml:"port"`
-	Subnet      string `yaml:"subnet"`
-	ServerIP    string `yaml:"server_ip"`
-	MetricsAddr string `yaml:"metrics_addr"`
-	ACLPath     string `yaml:"acl_path,omitempty"`
-	APIKey      string `yaml:"api_key,omitempty"`
+	Port            int    `yaml:"port"`
+	Subnet          string `yaml:"subnet"`
+	ServerIP        string `yaml:"server_ip"`
+	MetricsAddr     string `yaml:"metrics_addr"`
+	ACLPath         string `yaml:"acl_path,omitempty"`
+	APIKey          string `yaml:"api_key,omitempty"`
+	ForwardBindAddr string `yaml:"forward_bind_addr,omitempty"` // IP to bind direct-forward listeners (empty = 0.0.0.0)
 }
 
 // DefaultServerConfig returns a ServerConfig with sensible defaults.

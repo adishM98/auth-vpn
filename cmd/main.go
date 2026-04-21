@@ -89,7 +89,7 @@ func serverInstallCmd() *cobra.Command {
 
 func serverStartCmd() *cobra.Command {
 	var port int
-	var subnet, serverIP, metricsAddr, aclPath, apiKey string
+	var subnet, serverIP, metricsAddr, aclPath, apiKey, forwardBind string
 
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -121,6 +121,9 @@ func serverStartCmd() *cobra.Command {
 				if !cmd.Flags().Changed("api-key") {
 					cfg.APIKey = sc.APIKey
 				}
+				if !cmd.Flags().Changed("forward-bind") {
+					cfg.ForwardBindAddr = sc.ForwardBindAddr
+				}
 			}
 			// Apply explicit flag overrides.
 			if cmd.Flags().Changed("subnet") {
@@ -138,6 +141,9 @@ func serverStartCmd() *cobra.Command {
 			if cmd.Flags().Changed("api-key") {
 				cfg.APIKey = apiKey
 			}
+			if cmd.Flags().Changed("forward-bind") {
+				cfg.ForwardBindAddr = forwardBind
+			}
 
 			srv, err := server.New(&cfg)
 			if err != nil {
@@ -152,6 +158,7 @@ func serverStartCmd() *cobra.Command {
 	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", "", "Metrics/API listen address (default localhost:9100)")
 	cmd.Flags().StringVar(&aclPath, "acl", "", "Path to acl.yaml (empty = allow all)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "Bearer key for /api/* and /tooljet/* (empty = no auth)")
+	cmd.Flags().StringVar(&forwardBind, "forward-bind", "", "IP to bind direct-forward listeners (e.g. 172.190.141.231); empty = all interfaces")
 	return cmd
 }
 
