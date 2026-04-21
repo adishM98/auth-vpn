@@ -83,7 +83,9 @@ rm -f Makefile.bak
 # ── commit + tag + push ───────────────────────────────────────────────────────
 
 git add Makefile
-git commit -m "chore: release $NEW_TAG"
+if ! git diff --cached --quiet; then
+  git commit -m "chore: release $NEW_TAG"
+fi
 
 git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
 
