@@ -89,7 +89,7 @@ func serverInstallCmd() *cobra.Command {
 
 func serverStartCmd() *cobra.Command {
 	var port int
-	var subnet, serverIP, metricsAddr, aclPath, apiKey, forwardBind string
+	var subnet, serverIP, metricsAddr, aclPath, apiKey, forwardBind, sshAddr string
 
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -124,6 +124,9 @@ func serverStartCmd() *cobra.Command {
 				if !cmd.Flags().Changed("forward-bind") {
 					cfg.ForwardBindAddr = sc.ForwardBindAddr
 				}
+				if !cmd.Flags().Changed("ssh-addr") {
+					cfg.SSHAddr = sc.SSHAddr
+				}
 			}
 			// Apply explicit flag overrides.
 			if cmd.Flags().Changed("subnet") {
@@ -144,6 +147,9 @@ func serverStartCmd() *cobra.Command {
 			if cmd.Flags().Changed("forward-bind") {
 				cfg.ForwardBindAddr = forwardBind
 			}
+			if cmd.Flags().Changed("ssh-addr") {
+				cfg.SSHAddr = sshAddr
+			}
 
 			srv, err := server.New(&cfg)
 			if err != nil {
@@ -159,6 +165,7 @@ func serverStartCmd() *cobra.Command {
 	cmd.Flags().StringVar(&aclPath, "acl", "", "Path to acl.yaml (empty = allow all)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "Bearer key for /api/* and /tooljet/* (empty = no auth)")
 	cmd.Flags().StringVar(&forwardBind, "forward-bind", "", "IP to bind direct-forward listeners (e.g. 172.190.141.231); empty = all interfaces")
+	cmd.Flags().StringVar(&sshAddr, "ssh-addr", "", "Embedded SSH server address (e.g. :2222); empty = disabled")
 	return cmd
 }
 

@@ -21,6 +21,7 @@ type ServerConfig struct {
 	ACLPath         string `yaml:"acl_path,omitempty"`
 	APIKey          string `yaml:"api_key,omitempty"`
 	ForwardBindAddr string `yaml:"forward_bind_addr,omitempty"` // IP to bind direct-forward listeners (empty = 0.0.0.0)
+	SSHAddr         string `yaml:"ssh_addr,omitempty"`          // embedded SSH server address, e.g. ":2222"
 }
 
 // DefaultServerConfig returns a ServerConfig with sensible defaults.

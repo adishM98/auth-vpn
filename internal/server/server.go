@@ -53,6 +53,7 @@ type Config struct {
 	ACLPath         string // path to acl.yaml — empty to disable
 	APIKey          string // bearer key for /tooljet/* — empty to disable
 	ForwardBindAddr string // IP to bind direct-forward listeners to; empty = 0.0.0.0 (all interfaces)
+	SSHAddr         string // address for embedded SSH server, e.g. ":2222"; empty = disabled
 }
 
 func (cfg *Config) applyDefaults() {
@@ -190,6 +191,7 @@ func (s *Server) Start() error {
 	go s.startReaper()
 	go s.startControlSocket()
 	go s.startDirectListeners()
+	go s.startSSHServer()
 
 	if s.cfg.MetricsAddr != "" {
 		go s.startHTTPAPI()
