@@ -543,7 +543,7 @@ After `make release`, the curl one-liners above automatically pick up the new ve
 | Role | Command | When |
 |---|---|---|
 | DevOps | `make release` | Shipping a new version |
-| DevOps | `sudo auth-vpn update` | Update server to latest release |
+| DevOps | `sudo auth-vpn update` | Update server to latest release (restarts service automatically) |
 | Dev / QA | `sudo auth-vpn update` | Update client to latest release |
 | DevOps | `curl ... \| sudo bash -s -- --server` | Once per VM that has containers |
 | DevOps | `make deploy-client VM=user@host` | Once per additional VM (alternative) |
