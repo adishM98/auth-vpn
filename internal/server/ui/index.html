@@ -520,6 +520,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
     <div class="live-badge">
       <span id="status-dot"></span>
       <span>live</span>
+      <span id="last-updated" style="color:var(--muted);font-weight:400;margin-left:2px;"></span>
     </div>
   </div>
 </header>
@@ -992,6 +993,7 @@ async function refresh() {
           <td><button class="btn btn-danger btn-sm" onclick="removeSSHKey('${esc(k.name)}')">Remove</button></td>
         </tr>`).join('');
 
+    document.getElementById('last-updated').textContent = '· ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
   } catch(e) {
     // dot stays green; fetch errors are transient
   }
