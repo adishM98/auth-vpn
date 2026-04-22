@@ -126,25 +126,18 @@ func (m *Manager) Validate(raw string) (*Token, error) {
 	return nil, fmt.Errorf("invalid token")
 }
 
-// Revoke removes a token by name.
+// Revoke removes the first token with the given name.
 func (m *Manager) Revoke(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var kept []*Token
-	found := false
-	for _, t := range m.tokens {
+	for i, t := range m.tokens {
 		if t.Name == name {
-			found = true
-			continue
+			m.tokens = append(m.tokens[:i], m.tokens[i+1:]...)
+			return m.save()
 		}
-		kept = append(kept, t)
 	}
-	if !found {
-		return fmt.Errorf("token %q not found", name)
-	}
-	m.tokens = kept
-	return m.save()
+	return fmt.Errorf("token %q not found", name)
 }
 
 // TryClaim marks a token as actively in use.

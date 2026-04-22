@@ -81,7 +81,7 @@ func (e *Engine) Reload() error {
 // server. pkt must be a valid IPv4 packet (at least 20 bytes).
 func (e *Engine) Allow(deviceName string, pkt []byte) bool {
 	if len(pkt) < 20 {
-		return true // let the server drop malformed packets
+		return false // too short to be a valid IPv4 packet; deny
 	}
 
 	e.mu.RLock()
@@ -129,7 +129,10 @@ func extractProtoPort(pkt []byte) (proto string, dstPort int) {
 		proto = "*"
 	}
 
-	ihl := int(pkt[0]&0x0f) * 4 // IP header length
+	ihl := int(pkt[0]&0x0f) * 4 // IP header length (min 20)
+	if ihl < 20 {
+		return // malformed IHL; leave dstPort = 0
+	}
 	if (proto == "tcp" || proto == "udp") && len(pkt) >= ihl+4 {
 		dstPort = int(binary.BigEndian.Uint16(pkt[ihl+2 : ihl+4]))
 	}

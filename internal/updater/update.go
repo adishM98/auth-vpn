@@ -24,7 +24,10 @@ type githubRelease struct {
 // LatestVersion fetches the latest release tag from GitHub.
 func LatestVersion() (string, error) {
 	c := &http.Client{Timeout: 15 * time.Second}
-	req, _ := http.NewRequest(http.MethodGet, apiURL, nil)
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := c.Do(req)
@@ -143,7 +146,7 @@ func downloadFile(url, dest string) error {
 		return fmt.Errorf("download returned %d", resp.StatusCode)
 	}
 
-	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}

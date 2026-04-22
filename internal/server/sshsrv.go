@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -34,13 +35,14 @@ func (s *Server) startSSHServer() {
 	cfg := &ssh.ServerConfig{
 		// Password auth: any username, auth-vpn token as password.
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+			remoteIP, _, _ := net.SplitHostPort(c.RemoteAddr().String())
 			tok, err := s.tokens.Validate(string(pass))
 			if err != nil {
-				s.limiter.RecordFailure(c.RemoteAddr().String())
+				s.limiter.RecordFailure(remoteIP)
 				s.metrics.IncAuthFailure()
 				return nil, fmt.Errorf("invalid token")
 			}
-			s.limiter.Reset(c.RemoteAddr().String())
+			s.limiter.Reset(remoteIP)
 			return &ssh.Permissions{
 				Extensions: map[string]string{"name": tok.Name},
 			}, nil
@@ -48,9 +50,10 @@ func (s *Server) startSSHServer() {
 		// Public key auth: keys registered via /api/ssh-keys OR present in the
 		// system authorized_keys for the connecting user.
 		PublicKeyCallback: func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			remoteIP, _, _ := net.SplitHostPort(c.RemoteAddr().String())
 			// Check auth-vpn managed keys first.
 			if name, ok := s.sshKeys.FindKey(key); ok {
-				s.limiter.Reset(c.RemoteAddr().String())
+				s.limiter.Reset(remoteIP)
 				return &ssh.Permissions{
 					Extensions: map[string]string{"name": name},
 				}, nil
@@ -58,12 +61,12 @@ func (s *Server) startSSHServer() {
 			// Fall back to system authorized_keys — any key that can SSH into
 			// this host as the given user is trusted for tunneling too.
 			if checkSystemAuthorizedKeys(key, c.User()) {
-				s.limiter.Reset(c.RemoteAddr().String())
+				s.limiter.Reset(remoteIP)
 				return &ssh.Permissions{
 					Extensions: map[string]string{"name": c.User()},
 				}, nil
 			}
-			s.limiter.RecordFailure(c.RemoteAddr().String())
+			s.limiter.RecordFailure(remoteIP)
 			s.metrics.IncAuthFailure()
 			return nil, fmt.Errorf("unauthorized key")
 		},
@@ -133,7 +136,7 @@ func (s *Server) handleSSHTunnel(newChan ssh.NewChannel, clientName string) {
 		return
 	}
 
-	target := fmt.Sprintf("%s:%d", req.DestHost, req.DestPort)
+	target := net.JoinHostPort(req.DestHost, fmt.Sprintf("%d", req.DestPort))
 
 	if !isAllowedSSHTarget(req.DestHost) {
 		log.Printf("SSH: %s → %s rejected (not a local target)", clientName, target)
@@ -168,6 +171,10 @@ func (s *Server) handleSSHTunnel(newChan ssh.NewChannel, clientName string) {
 // authorized_keys for the given username. This lets any key that can SSH into
 // the host also use auth-vpn's embedded SSH server without manual registration.
 func checkSystemAuthorizedKeys(key ssh.PublicKey, username string) bool {
+	// Reject usernames that could escape the /home/<user>/ directory.
+	if !isSafeUsername(username) {
+		return false
+	}
 	fp := ssh.FingerprintSHA256(key)
 	candidates := []string{
 		fmt.Sprintf("/home/%s/.ssh/authorized_keys", username),
@@ -202,6 +209,13 @@ func isAllowedSSHTarget(host string) bool {
 		return false
 	}
 	return localhostNet.Contains(ip) || vpnSubnet.Contains(ip)
+}
+
+// isSafeUsername returns true if username is safe to interpolate into a file path.
+// Rejects empty strings and any username containing path separators or dots that
+// could escape the /home/<user>/ directory.
+func isSafeUsername(u string) bool {
+	return u != "" && !strings.Contains(u, "/") && !strings.Contains(u, ".")
 }
 
 // loadOrGenerateSSHHostKey loads the RSA host key from path, generating and

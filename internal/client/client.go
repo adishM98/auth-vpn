@@ -137,9 +137,8 @@ func Connect(opts Options) error {
 			if err != nil {
 				return
 			}
-			pkt := make([]byte, n)
-			copy(pkt, buf[:n])
-			if err := tunnel.WriteFrame(conn, protocol.TypeIPPacket, pkt); err != nil {
+			// WriteFrame copies buf[:n] internally; no extra allocation needed.
+			if err := tunnel.WriteFrame(conn, protocol.TypeIPPacket, buf[:n]); err != nil {
 				return
 			}
 		}

@@ -1,6 +1,9 @@
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log"
+)
 
 // Frame type constants — 1 byte header in every frame.
 const (
@@ -61,7 +64,11 @@ type AuthFailResponse struct {
 }
 
 func Encode(v any) []byte {
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		// All protocol structs are static; a marshal failure is always a programming bug.
+		log.Fatalf("protocol.Encode: marshal %T: %v", v, err)
+	}
 	return b
 }
 

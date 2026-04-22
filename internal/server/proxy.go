@@ -51,7 +51,7 @@ func (s *Server) handleProxyConn(conn net.Conn, name string) {
 				continue
 			}
 
-			target := fmt.Sprintf("%s:%d", req.Host, req.Port)
+			target := net.JoinHostPort(req.Host, fmt.Sprintf("%d", req.Port))
 			tc, err := net.DialTimeout("tcp", target, 10*time.Second)
 			if err != nil {
 				log.Printf("proxy: %s dial %s: %v", name, target, err)

@@ -84,6 +84,10 @@ func (m *proxyMux) dialRemote(host string, port int) (uint32, error) {
 		m.pendingMu.Lock()
 		delete(m.pending, id)
 		m.pendingMu.Unlock()
+		// Tell server to close the stream it may have already opened.
+		closePayload := make([]byte, 4)
+		binary.BigEndian.PutUint32(closePayload, id)
+		m.writeFrame(protocol.TypeProxyClose, closePayload) //nolint:errcheck
 		return 0, fmt.Errorf("dial timeout")
 	case <-m.ctx.Done():
 		return 0, fmt.Errorf("connection closed")

@@ -366,7 +366,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		ServerIP: s.cfg.ServerIP,
 		Subnet:   s.cfg.Subnet,
 	}
-	if err := tunnel.WriteFrame(conn, protocol.TypeAuthOK, protocol.Encode(resp)); err != nil {
+	if err := client.writeFrame(protocol.TypeAuthOK, protocol.Encode(resp)); err != nil {
 		log.Printf("send AUTH_OK to %s: %v", clientName, err)
 		return
 	}
@@ -377,7 +377,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	// Forward TUN → TCP via sendCh (filled by routeFromTUN).
 	for pkt := range client.sendCh {
-		if err := tunnel.WriteFrame(conn, protocol.TypeIPPacket, pkt); err != nil {
+		if err := client.writeFrame(protocol.TypeIPPacket, pkt); err != nil {
 			break
 		}
 		client.bytesOut.Add(int64(len(pkt)))
@@ -388,13 +388,16 @@ func (s *Server) handleConn(conn net.Conn) {
 
 // forwardToTUN reads IP packets from a client TCP conn and writes them to TUN.
 func (s *Server) forwardToTUN(c *connectedClient) {
-	defer close(c.sendCh)
+	defer func() {
+		c.dead.Store(true) // must be set before closing sendCh
+		close(c.sendCh)
+	}()
 	for {
 		msgType, payload, err := tunnel.ReadFrame(c.conn)
 		if err != nil {
 			return
 		}
-		c.Touch() // P0-B: update last-seen timestamp
+		c.Touch()
 		switch msgType {
 		case protocol.TypeIPPacket:
 			if _, err := s.tun.Write(payload); err != nil {
@@ -404,7 +407,7 @@ func (s *Server) forwardToTUN(c *connectedClient) {
 			c.bytesIn.Add(int64(len(payload)))
 			s.metrics.AddBytesIn(len(payload))
 		case protocol.TypePing:
-			_ = tunnel.WriteFrame(c.conn, protocol.TypePong, nil)
+			_ = c.writeFrame(protocol.TypePong, nil)
 		case protocol.TypeDisconnect:
 			return
 		}
@@ -440,6 +443,11 @@ func (s *Server) routeFromTUN() {
 			continue
 		}
 
+		// dead is set before sendCh is closed; skip to avoid a panic on send-to-closed-chan.
+		if client.dead.Load() {
+			s.metrics.IncDropped()
+			continue
+		}
 		select {
 		case client.sendCh <- pkt:
 		default:

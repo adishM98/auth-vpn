@@ -68,7 +68,11 @@ func fetchFingerprint(addr string) (string, error) {
 		return "", err
 	}
 	defer conn.Close()
-	return certFingerprint(conn.ConnectionState().PeerCertificates[0]), nil
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return "", fmt.Errorf("server sent no certificates")
+	}
+	return certFingerprint(certs[0]), nil
 }
 
 // pinnedTLSConfig returns a TLS config that verifies the server presents a
@@ -78,6 +82,9 @@ func pinnedTLSConfig(fp string) *tls.Config {
 		InsecureSkipVerify: true, //nolint:gosec // manual fingerprint check in VerifyConnection
 		MinVersion:         tls.VersionTLS13,
 		VerifyConnection: func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 {
+				return fmt.Errorf("server sent no certificates")
+			}
 			got := certFingerprint(cs.PeerCertificates[0])
 			if got != fp {
 				return fmt.Errorf(

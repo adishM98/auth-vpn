@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/adishM98/auth-vpn/internal/tunnel"
 )
 
 // connectedClient holds state for one authenticated tunnel client.
@@ -13,11 +15,20 @@ type connectedClient struct {
 	name        string
 	ip          string     // assigned tunnel IP, e.g. "10.0.0.2"
 	conn        net.Conn
+	writeMu     sync.Mutex  // serializes all writes to conn
 	sendCh      chan []byte // packets destined for this client
+	dead        atomic.Bool // set true before sendCh is closed; guards routeFromTUN
 	connectedAt time.Time
 	lastSeen    atomic.Int64 // Unix nanoseconds; updated on every received frame
 	bytesIn     atomic.Int64 // bytes forwarded client → TUN
 	bytesOut    atomic.Int64 // bytes forwarded TUN → client
+}
+
+// writeFrame serializes a frame write to conn; safe to call from multiple goroutines.
+func (c *connectedClient) writeFrame(msgType byte, payload []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return tunnel.WriteFrame(c.conn, msgType, payload)
 }
 
 // Touch records the current time as the last-seen timestamp.
