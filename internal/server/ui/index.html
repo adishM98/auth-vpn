@@ -4,170 +4,519 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>auth-vpn dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0d0f18; --surface: #161923; --surface2: #1e2130;
-  --border: #252836; --border2: #2e3245;
-  --text: #e2e8f0; --muted: #6b7591; --muted2: #8892a4;
-  --accent: #6366f1; --accent-dim: #312e81;
-  --green: #22c55e; --green-dim: #14532d;
-  --red: #ef4444; --red-dim: #7f1d1d;
-  --yellow: #f59e0b; --yellow-dim: #78350f;
-  --blue: #38bdf8; --blue-dim: #0c4a6e;
-  --radius: 10px; --radius-sm: 6px;
+  --bg: #090b12;
+  --surface: #0f1119;
+  --surface2: #161927;
+  --surface3: #1c2033;
+  --border: #1e2236;
+  --border2: #272d45;
+  --text: #eaecf5;
+  --text2: #bfc8dc;
+  --muted: #57607c;
+  --muted2: #7882a0;
+
+  --accent: #6366f1;
+  --accent2: #818cf8;
+  --accent-dim: #191845;
+  --accent-hover: #4f46e5;
+  --accent-glow: rgba(99,102,241,.15);
+
+  --green: #34d399;
+  --green-dim: #052e1a;
+  --green-text: #6ee7b7;
+  --green-border: rgba(52,211,153,.18);
+
+  --red: #f87171;
+  --red-dim: #2a0f0f;
+  --red-text: #fca5a5;
+  --red-border: rgba(248,113,113,.18);
+
+  --yellow: #fbbf24;
+  --yellow-dim: #271900;
+  --yellow-text: #fde68a;
+  --yellow-border: rgba(251,191,36,.18);
+
+  --blue: #60a5fa;
+  --blue-dim: #0a1d38;
+  --blue-text: #93c5fd;
+  --blue-border: rgba(96,165,250,.18);
+
+  --radius: 10px;
+  --radius-sm: 7px;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
 /* ── Header ── */
 header {
-  background: var(--surface); border-bottom: 1px solid var(--border);
-  padding: 0 28px; display: flex; align-items: center;
-  justify-content: space-between; height: 56px; position: sticky; top: 0; z-index: 100;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 54px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
-.logo { font-size: 17px; font-weight: 700; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; }
-.logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.3px;
+  color: var(--text);
+  text-decoration: none;
+}
+.logo-icon {
+  width: 30px;
+  height: 30px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(99,102,241,.3);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .logo em { color: var(--accent); font-style: normal; }
-.header-right { display: flex; align-items: center; gap: 16px; }
-.live-badge { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted2);
-              background: var(--surface2); border: 1px solid var(--border); padding: 4px 10px; border-radius: 20px; }
-#status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
-@keyframes pulse { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,197,94,.4)} 50%{opacity:.8;box-shadow:0 0 0 4px rgba(34,197,94,0)} }
-#last-updated { font-size: 12px; color: var(--muted); }
+
+.header-right { display: flex; align-items: center; gap: 12px; }
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted2);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  border-radius: 20px;
+}
+#status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+  animation: pulse 2.5s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(52,211,153,.5); }
+  50% { opacity: .85; box-shadow: 0 0 0 5px rgba(52,211,153,0); }
+}
 
 /* ── Layout ── */
-.layout { display: flex; min-height: calc(100vh - 56px); }
+.layout { display: flex; min-height: calc(100vh - 54px); }
 
 /* ── Sidebar ── */
 nav {
-  width: 200px; background: var(--surface); border-right: 1px solid var(--border);
-  padding: 16px 10px; display: flex; flex-direction: column; gap: 2px;
-  position: sticky; top: 56px; height: calc(100vh - 56px); flex-shrink: 0;
+  width: 210px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  position: sticky;
+  top: 54px;
+  height: calc(100vh - 54px);
+  flex-shrink: 0;
+  overflow-y: auto;
 }
+
+.nav-section {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .9px;
+  font-weight: 600;
+  padding: 14px 12px 5px;
+}
+
 .nav-item {
-  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
-  border-radius: var(--radius-sm); color: var(--muted2); cursor: pointer;
-  font-size: 13px; font-weight: 500; transition: all .15s; border: none;
-  background: none; width: 100%; text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--muted2);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background .12s, color .12s;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  position: relative;
+  font-family: inherit;
 }
-.nav-item:hover { background: var(--surface2); color: var(--text); }
-.nav-item.active { background: var(--accent-dim); color: var(--accent); }
+.nav-item:hover { background: var(--surface2); color: var(--text2); }
+.nav-item.active {
+  background: var(--accent-dim);
+  color: var(--accent2);
+}
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 55%;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+}
 .nav-item svg { flex-shrink: 0; }
-.nav-section { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
-               padding: 12px 12px 4px; font-weight: 600; }
 
 /* ── Main ── */
-main { flex: 1; padding: 28px; overflow-y: auto; max-width: 900px; }
+main { flex: 1; padding: 28px 32px; overflow-y: auto; max-width: 1060px; }
+
+.page-header { margin-bottom: 22px; }
+.page-title { font-size: 17px; font-weight: 700; letter-spacing: -.4px; color: var(--text); }
+.page-desc { font-size: 12.5px; color: var(--muted2); margin-top: 3px; }
+
 .tab { display: none; }
 .tab.active { display: block; }
 
 /* ── Stats ── */
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 28px; }
-.stat {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 12px;
-}
-.stat-top { display: flex; align-items: center; justify-content: space-between; }
-.stat-label { font-size: 12px; color: var(--muted); font-weight: 500; }
-.stat-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
-.stat-value { font-size: 26px; font-weight: 700; line-height: 1; }
-.stat-value.sm { font-size: 18px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 26px; }
 
-/* ── Section cards ── */
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; }
-.card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-.card-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); }
-.card-title svg { color: var(--muted2); }
-.card-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.card-body { padding: 16px 20px; }
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px 16px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .2s, transform .2s;
+}
+.stat:hover { border-color: var(--border2); }
+.stat-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.stat-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.stat-label { font-size: 11.5px; color: var(--muted2); font-weight: 500; }
+.stat-icon { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.stat-value { font-size: 28px; font-weight: 700; line-height: 1; letter-spacing: -1.5px; color: var(--text); }
+.stat-value.sm { font-size: 20px; letter-spacing: -.5px; }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 18px;
+  transition: border-color .2s;
+}
+.card:hover { border-color: var(--border2); }
+
+.card-header {
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface2);
+}
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.card-title svg { color: var(--muted2); flex-shrink: 0; }
+.card-desc { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.card-body { padding: 20px; }
 .card-form { padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--surface2); }
 
 /* ── Tables ── */
+.table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
-th { text-align: left; padding: 10px 14px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
-td { padding: 12px 14px; border-top: 1px solid var(--border); font-size: 13px; }
-tr:hover td { background: var(--surface2); }
-.empty-row td { color: var(--muted); font-style: italic; text-align: center; padding: 28px; }
+
+thead th {
+  text-align: left;
+  padding: 9px 16px;
+  font-size: 10.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  font-weight: 600;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 11px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text2);
+  vertical-align: middle;
+}
+td strong { color: var(--text); font-weight: 600; }
+tr:hover td { background: rgba(99,102,241,.04); }
+
+.empty-row td {
+  color: var(--muted);
+  text-align: center;
+  padding: 44px 20px;
+  font-size: 13px;
+}
+
+/* ── Name cell with avatar ── */
+.name-cell { display: flex; align-items: center; gap: 10px; }
+.name-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(99,102,241,.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent2);
+  text-transform: uppercase;
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
 
 /* ── Badges ── */
-.badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-.badge-green { background: var(--green-dim); color: var(--green); }
-.badge-red { background: var(--red-dim); color: var(--red); }
-.badge-yellow { background: var(--yellow-dim); color: var(--yellow); }
-.badge-blue { background: var(--blue-dim); color: var(--blue); }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-green { background: var(--green-dim); color: var(--green-text); border: 1px solid var(--green-border); }
+.badge-red   { background: var(--red-dim);   color: var(--red-text);   border: 1px solid var(--red-border); }
+.badge-yellow{ background: var(--yellow-dim); color: var(--yellow-text); border: 1px solid var(--yellow-border); }
+.badge-blue  { background: var(--blue-dim);  color: var(--blue-text);  border: 1px solid var(--blue-border); }
 
 /* ── Buttons ── */
-.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius-sm);
-       border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: all .15s; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { background: #4f46e5; }
-.btn-danger { background: var(--red-dim); color: var(--red); }
-.btn-danger:hover { background: #991b1b; }
+.btn-primary:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(99,102,241,.35);
+}
+.btn-primary:active { transform: translateY(0); box-shadow: none; }
+
+.btn-danger { background: var(--red-dim); color: var(--red-text); border: 1px solid var(--red-border); }
+.btn-danger:hover { background: rgba(248,113,113,.18); border-color: rgba(248,113,113,.35); }
+
 .btn-ghost { background: var(--surface2); color: var(--muted2); border: 1px solid var(--border); }
-.btn-ghost:hover { color: var(--text); border-color: var(--border2); }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-.btn-icon { padding: 6px; background: var(--surface2); border: 1px solid var(--border); color: var(--muted2); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; transition: all .15s; }
+.btn-ghost:hover { color: var(--text); border-color: var(--border2); background: var(--surface3); }
+
+.btn-sm { padding: 4px 10px; font-size: 11.5px; }
+
+.btn-icon {
+  padding: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--muted2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: all .15s;
+  font-family: inherit;
+}
 .btn-icon:hover { color: var(--text); border-color: var(--border2); }
 
 /* ── Forms ── */
-.form-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .form-group { display: flex; flex-direction: column; gap: 5px; }
-.form-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+.form-label { font-size: 11.5px; color: var(--muted2); font-weight: 500; }
+
 input[type=text], input[type=number] {
-  background: var(--bg); border: 1px solid var(--border2); color: var(--text);
-  padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px; outline: none;
-  transition: border-color .15s;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  height: 36px;
+  transition: border-color .15s, box-shadow .15s;
 }
-input[type=text]:focus, input[type=number]:focus { border-color: var(--accent); }
+input[type=text]:focus, input[type=number]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
 input::placeholder { color: var(--muted); }
-.checkbox-label { display: flex; align-items: center; gap: 6px; color: var(--muted2); font-size: 13px; cursor: pointer; padding: 8px 0; }
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted2);
+  font-size: 13px;
+  cursor: pointer;
+  height: 36px;
+  padding: 0 2px;
+  user-select: none;
+}
 input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
 
 /* ── Token result ── */
 .token-box {
-  font-family: monospace; font-size: 12px; background: var(--bg);
-  border: 1px solid var(--green-dim); padding: 12px 14px; border-radius: var(--radius-sm);
-  color: var(--green); word-break: break-all; display: none; margin-top: 12px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--green-border);
+  padding: 12px 40px 12px 14px;
+  border-radius: var(--radius-sm);
+  color: var(--green-text);
+  word-break: break-all;
+  display: none;
+  margin-top: 14px;
   position: relative;
+  line-height: 1.6;
 }
 .token-box .copy-btn { position: absolute; top: 8px; right: 8px; }
 
 /* ── Error ── */
-.error-msg { color: var(--red); font-size: 12px; margin-top: 8px; display: none; }
+.error-msg {
+  color: var(--red-text);
+  font-size: 12px;
+  margin-top: 8px;
+  display: none;
+  padding: 6px 10px;
+  background: var(--red-dim);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--red-border);
+}
 
 /* ── Mono ── */
 .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: var(--muted2); }
 
 /* ── Toast ── */
 #toast {
-  position: fixed; bottom: 24px; right: 24px; z-index: 999;
-  background: var(--surface2); border: 1px solid var(--border2);
-  border-radius: var(--radius); padding: 12px 16px; font-size: 13px;
-  display: flex; align-items: center; gap: 8px; opacity: 0;
-  transform: translateY(8px); transition: all .2s; pointer-events: none; max-width: 320px;
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all .22s cubic-bezier(.16,1,.3,1);
+  pointer-events: none;
+  max-width: 340px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.45);
 }
 #toast.show { opacity: 1; transform: translateY(0); }
-#toast.success { border-color: var(--green-dim); color: var(--green); }
-#toast.error { border-color: var(--red-dim); color: var(--red); }
+#toast.success { border-color: var(--green-border); color: var(--green-text); }
+#toast.error   { border-color: var(--red-border);   color: var(--red-text); }
 
-/* ── SSH key modal ── */
-.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 200; align-items: center; justify-content: center; }
+/* ── Modal ── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.65);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
 .modal-overlay.show { display: flex; }
-.modal { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); padding: 24px; max-width: 560px; width: 90%; }
-.modal h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
-.modal p { font-size: 13px; color: var(--muted2); margin-bottom: 16px; }
-.modal textarea { width: 100%; background: var(--bg); border: 1px solid var(--border2); color: var(--green); padding: 12px; border-radius: var(--radius-sm); font-family: monospace; font-size: 11px; resize: none; height: 200px; outline: none; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modal {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  padding: 28px;
+  max-width: 560px;
+  width: 90%;
+  box-shadow: 0 24px 64px rgba(0,0,0,.55);
+}
+.modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; letter-spacing: -.2px; }
+.modal p  { font-size: 13px; color: var(--muted2); margin-bottom: 16px; line-height: 1.65; }
+.modal textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--green-text);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11.5px;
+  resize: none;
+  height: 200px;
+  outline: none;
+  line-height: 1.65;
+}
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 </style>
 </head>
 <body>
 <header>
   <div class="logo">
-    <div class="logo-dot"></div>
+    <div class="logo-icon">
+      <svg width="15" height="15" fill="none" stroke="var(--accent2)" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    </div>
     <span><em>auth</em>-vpn</span>
   </div>
   <div class="header-right">
-    <span id="last-updated"></span>
     <div class="live-badge">
       <span id="status-dot"></span>
       <span>live</span>
@@ -211,46 +560,49 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
   <main>
     <!-- ── Overview ── -->
     <div class="tab active" id="tab-overview">
+      <div class="page-header">
+        <div class="page-title">Overview</div>
+        <div class="page-desc">Live status of active VPN connections and traffic.</div>
+      </div>
+
       <div class="stats">
         <div class="stat">
+          <div class="stat-bar" style="background:var(--accent)"></div>
           <div class="stat-top">
             <div class="stat-label">Active Clients</div>
-            <div class="stat-icon" style="background:#1e1b4b"><svg width="16" height="16" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div>
+            <div class="stat-icon" style="background:#1e1b4b"><svg width="15" height="15" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div>
           </div>
           <div class="stat-value" id="s-active">—</div>
         </div>
         <div class="stat">
-          <div class="stat-top">
-            <div class="stat-label">Total Connections</div>
-            <div class="stat-icon" style="background:#0c4a6e"><svg width="16" height="16" fill="none" stroke="#38bdf8" stroke-width="2" viewBox="0 0 24 24"><path d="M17 12h-5l-4-7H3"/><path d="M3 12h5l4 7h5"/></svg></div>
-          </div>
-          <div class="stat-value" id="s-total">—</div>
-        </div>
-        <div class="stat">
+          <div class="stat-bar" style="background:var(--red)"></div>
           <div class="stat-top">
             <div class="stat-label">Auth Failures</div>
-            <div class="stat-icon" style="background:#7f1d1d"><svg width="16" height="16" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+            <div class="stat-icon" style="background:#2a0f0f"><svg width="15" height="15" fill="none" stroke="#f87171" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
           </div>
           <div class="stat-value" id="s-failures">—</div>
         </div>
         <div class="stat">
+          <div class="stat-bar" style="background:var(--green)"></div>
           <div class="stat-top">
             <div class="stat-label">Uptime</div>
-            <div class="stat-icon" style="background:#14532d"><svg width="16" height="16" fill="none" stroke="#22c55e" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+            <div class="stat-icon" style="background:#052e1a"><svg width="15" height="15" fill="none" stroke="#34d399" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
           </div>
           <div class="stat-value sm" id="s-uptime">—</div>
         </div>
         <div class="stat">
+          <div class="stat-bar" style="background:var(--blue)"></div>
           <div class="stat-top">
             <div class="stat-label">Data In</div>
-            <div class="stat-icon" style="background:#0c4a6e"><svg width="16" height="16" fill="none" stroke="#38bdf8" stroke-width="2" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg></div>
+            <div class="stat-icon" style="background:#0a1d38"><svg width="15" height="15" fill="none" stroke="#60a5fa" stroke-width="2" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg></div>
           </div>
           <div class="stat-value sm" id="s-in">—</div>
         </div>
         <div class="stat">
+          <div class="stat-bar" style="background:var(--accent2)"></div>
           <div class="stat-top">
             <div class="stat-label">Data Out</div>
-            <div class="stat-icon" style="background:#312e81"><svg width="16" height="16" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><polyline points="16 7 12 3 8 7"/><line x1="12" y1="3" x2="12" y2="12"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg></div>
+            <div class="stat-icon" style="background:#191845"><svg width="15" height="15" fill="none" stroke="#818cf8" stroke-width="2" viewBox="0 0 24 24"><polyline points="16 7 12 3 8 7"/><line x1="12" y1="3" x2="12" y2="12"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg></div>
           </div>
           <div class="stat-value sm" id="s-out">—</div>
         </div>
@@ -266,15 +618,21 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
           </div>
           <span class="badge badge-green" id="client-count-badge">0 online</span>
         </div>
-        <table>
-          <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected At</th><th>In</th><th>Out</th><th>Status</th><th></th></tr></thead>
-          <tbody id="clients-body"><tr class="empty-row"><td colspan="7">loading...</td></tr></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected At</th><th>In</th><th>Out</th><th>Status</th><th></th></tr></thead>
+            <tbody id="clients-body"><tr class="empty-row"><td colspan="7">loading...</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
     <!-- ── Clients ── -->
     <div class="tab" id="tab-clients">
+      <div class="page-header">
+        <div class="page-title">Clients</div>
+        <div class="page-desc">All currently connected VPN clients.</div>
+      </div>
       <div class="card">
         <div class="card-header">
           <div class="card-title">
@@ -282,23 +640,26 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
             Connected Clients
           </div>
         </div>
-        <table>
-          <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected At</th><th>In</th><th>Out</th><th>Status</th><th></th></tr></thead>
-          <tbody id="clients-body2"><tr class="empty-row"><td colspan="7">loading...</td></tr></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected At</th><th>In</th><th>Out</th><th>Status</th><th></th></tr></thead>
+            <tbody id="clients-body2"><tr class="empty-row"><td colspan="7">loading...</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
     <!-- ── Tokens ── -->
     <div class="tab" id="tab-tokens">
+      <div class="page-header">
+        <div class="page-title">Access Tokens</div>
+        <div class="page-desc">Tokens authenticate VPN and SSH tunnel connections. Each token can only be active in one place at a time.</div>
+      </div>
       <div class="card">
         <div class="card-header">
-          <div>
-            <div class="card-title">
-              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-              Access Tokens
-            </div>
-            <div class="card-desc">Tokens authenticate VPN and SSH tunnel connections.</div>
+          <div class="card-title">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            Access Tokens
           </div>
         </div>
         <div class="card-form">
@@ -306,9 +667,9 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
             <div class="form-row">
               <div class="form-group">
                 <div class="form-label">Name</div>
-                <input type="text" id="token-name" placeholder="e.g. tooljet-prod" required style="width:200px;">
+                <input type="text" id="token-name" placeholder="e.g. alice-laptop" required style="width:200px;">
               </div>
-              <label class="checkbox-label" style="padding-bottom:0;margin-top:auto;">
+              <label class="checkbox-label" style="margin-top:auto;">
                 <input type="checkbox" id="token-onetime"> One-time use
               </label>
               <button type="submit" class="btn btn-primary" style="margin-top:auto;">
@@ -324,23 +685,26 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
             <span id="token-result-text"></span>
           </div>
         </div>
-        <table>
-          <thead><tr><th>Name</th><th>Created</th><th>Expires</th><th>Type</th><th></th></tr></thead>
-          <tbody id="tokens-body"><tr class="empty-row"><td colspan="5">loading...</td></tr></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Created</th><th>Expires</th><th>Type</th><th></th></tr></thead>
+            <tbody id="tokens-body"><tr class="empty-row"><td colspan="5">loading...</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
     <!-- ── Whitelist ── -->
     <div class="tab" id="tab-whitelist">
+      <div class="page-header">
+        <div class="page-title">IP Whitelist</div>
+        <div class="page-desc">IPs and CIDRs that can connect to direct forwards without a token.</div>
+      </div>
       <div class="card">
         <div class="card-header">
-          <div>
-            <div class="card-title">
-              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              IP Whitelist
-            </div>
-            <div class="card-desc">IPs and CIDRs that connect to direct forwards without a token.</div>
+          <div class="card-title">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            IP Whitelist
           </div>
         </div>
         <div class="card-form">
@@ -352,7 +716,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
               </div>
               <div class="form-group">
                 <div class="form-label">IP or CIDR</div>
-                <input type="text" id="wl-ip" placeholder="1.2.3.4 or 10.0.0.0/24" required style="width:220px;">
+                <input type="text" id="wl-ip" placeholder="1.2.3.4 or 10.0.0.0/24" required style="width:230px;">
               </div>
               <button type="submit" class="btn btn-primary" style="margin-top:auto;">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -362,29 +726,32 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
             <div class="error-msg" id="wl-error"></div>
           </form>
         </div>
-        <table>
-          <thead><tr><th>Name</th><th>IP / CIDR</th><th>Added</th><th></th></tr></thead>
-          <tbody id="whitelist-body"><tr class="empty-row"><td colspan="4">loading...</td></tr></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>IP / CIDR</th><th>Added</th><th></th></tr></thead>
+            <tbody id="whitelist-body"><tr class="empty-row"><td colspan="4">loading...</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
     <!-- ── SSH Keys ── -->
     <div class="tab" id="tab-sshkeys">
+      <div class="page-header">
+        <div class="page-title">SSH Keys</div>
+        <div class="page-desc">SSH public keys authorized for tunnel access on port 2222.</div>
+      </div>
       <div class="card">
         <div class="card-header">
-          <div>
-            <div class="card-title">
-              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="12" rx="2"/><path d="M7 9V7a5 5 0 0 1 10 0v2"/></svg>
-              SSH Keys
-            </div>
-            <div class="card-desc">SSH public keys authorized for tunnel access on port 2222.</div>
+          <div class="card-title">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="12" rx="2"/><path d="M7 9V7a5 5 0 0 1 10 0v2"/></svg>
+            SSH Keys
           </div>
         </div>
         <div class="card-form">
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;">
             <div>
-              <div class="form-label" style="margin-bottom:5px;">Generate new keypair</div>
+              <div class="form-label" style="margin-bottom:6px;">Generate new keypair</div>
               <div class="form-row">
                 <input type="text" id="sshkey-gen-name" placeholder="e.g. tooljet" style="width:180px;">
                 <button class="btn btn-primary" onclick="generateSSHKey()">
@@ -393,8 +760,8 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
                 </button>
               </div>
             </div>
-            <div style="border-left:1px solid var(--border);padding-left:16px;">
-              <div class="form-label" style="margin-bottom:5px;">Register existing public key</div>
+            <div style="border-left:1px solid var(--border);padding-left:20px;">
+              <div class="form-label" style="margin-bottom:6px;">Register existing public key</div>
               <div class="form-row">
                 <input type="text" id="sshkey-reg-name" placeholder="name" style="width:120px;">
                 <input type="text" id="sshkey-reg-key" placeholder="ssh-rsa AAAA..." style="width:260px;">
@@ -404,26 +771,29 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
           </div>
           <div class="error-msg" id="sshkey-error"></div>
         </div>
-        <table>
-          <thead><tr><th>Name</th><th>Added</th><th></th></tr></thead>
-          <tbody id="sshkeys-body"><tr class="empty-row"><td colspan="3">loading...</td></tr></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Added</th><th></th></tr></thead>
+            <tbody id="sshkeys-body"><tr class="empty-row"><td colspan="3">loading...</td></tr></tbody>
+          </table>
+        </div>
       </div>
       <p style="font-size:12px;color:var(--muted);margin-top:8px;">
-        System keys in <code style="color:var(--muted2)">~/.ssh/authorized_keys</code> are automatically trusted — no registration needed.
+        System keys in <code style="color:var(--muted2);font-family:'SF Mono','Fira Code',monospace;font-size:11.5px;">~/.ssh/authorized_keys</code> are automatically trusted — no registration needed.
       </p>
     </div>
 
     <!-- ── Direct Forwards ── -->
     <div class="tab" id="tab-forwards">
+      <div class="page-header">
+        <div class="page-title">Direct Forwards</div>
+        <div class="page-desc">Expose backend ports to whitelisted IPs without a VPN client.</div>
+      </div>
       <div class="card">
         <div class="card-header">
-          <div>
-            <div class="card-title">
-              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-              Direct Forwards
-            </div>
-            <div class="card-desc">Expose backend ports to whitelisted IPs without a VPN client.</div>
+          <div class="card-title">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            Direct Forwards
           </div>
         </div>
         <div class="card-form">
@@ -435,7 +805,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
               </div>
               <div class="form-group">
                 <div class="form-label">Target</div>
-                <input type="text" id="fwd-target" placeholder="e.g. 127.0.0.1:5432" required style="width:220px;">
+                <input type="text" id="fwd-target" placeholder="e.g. 127.0.0.1:5432" required style="width:230px;">
               </div>
               <button type="submit" class="btn btn-primary" style="margin-top:auto;">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -445,10 +815,12 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
             <div class="error-msg" id="fwd-error"></div>
           </form>
         </div>
-        <table>
-          <thead><tr><th>Listen Port</th><th>→ Target</th><th>Status</th><th>Added</th><th></th></tr></thead>
-          <tbody id="forwards-body"><tr class="empty-row"><td colspan="5">loading...</td></tr></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Listen Port</th><th>→ Target</th><th>Status</th><th>Added</th><th></th></tr></thead>
+            <tbody id="forwards-body"><tr class="empty-row"><td colspan="5">loading...</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </main>
@@ -458,7 +830,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; c
 <div class="modal-overlay" id="sshkey-modal">
   <div class="modal">
     <h3>SSH Private Key Generated</h3>
-    <p>Copy this private key and paste it into ToolJet's SSH private key field. It will not be shown again.</p>
+    <p>Copy this private key and save it securely. It will not be shown again.</p>
     <textarea id="sshkey-modal-text" readonly></textarea>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeSSHModal()">Close</button>
@@ -527,6 +899,13 @@ const fmt = {
   }
 };
 
+function avatar(name, bg, color, border) {
+  const b = bg    || 'var(--accent-dim)';
+  const c = color || 'var(--accent2)';
+  const e = border|| 'rgba(99,102,241,.22)';
+  return `<div class="name-avatar" style="background:${b};color:${c};border-color:${e}">${esc(name[0])}</div>`;
+}
+
 // ── Refresh ──
 async function refresh() {
   try {
@@ -540,18 +919,17 @@ async function refresh() {
 
     const metrics = await fetch('/metrics', { headers: API_KEY ? {'Authorization':'Bearer '+API_KEY} : {} }).then(r=>r.text()).catch(()=>'');
     const get = name => { const m = metrics.match(new RegExp('^'+name+' (\\d+)', 'm')); return m ? parseInt(m[1]) : 0; };
-    document.getElementById('s-total').textContent = get('auth_vpn_connections_total');
     document.getElementById('s-failures').textContent = get('auth_vpn_auth_failures_total');
+
+    // Clients — must be declared before Data In/Out which reference it
+    const cls = clients.data.clients || [];
     document.getElementById('s-in').textContent = fmt.bytes(cls.reduce((s, c) => s + (c.bytes_in||0), 0));
     document.getElementById('s-out').textContent = fmt.bytes(cls.reduce((s, c) => s + (c.bytes_out||0), 0));
-
-    // Clients
-    const cls = clients.data.clients || [];
     document.getElementById('client-count-badge').textContent = cls.length + ' online';
     const clientRow = cls.length === 0
-      ? '<tr class="empty-row"><td colspan="7">no clients connected</td></tr>'
+      ? '<tr class="empty-row"><td colspan="7">No clients connected</td></tr>'
       : cls.map(c => `<tr>
-          <td><strong>${esc(c.name)}</strong></td>
+          <td><div class="name-cell">${avatar(c.name)}<strong>${esc(c.name)}</strong></div></td>
           <td class="mono">${esc(c.ip)}</td>
           <td>${fmt.dt(c.connected_at)}</td>
           <td class="mono">${fmt.bytes(c.bytes_in||0)}</td>
@@ -566,7 +944,7 @@ async function refresh() {
     const fwds = forwards.data.forwards || [];
     const bindErrs = forwards.data.bind_errors || {};
     document.getElementById('forwards-body').innerHTML = fwds.length === 0
-      ? '<tr class="empty-row"><td colspan="5">no forwards configured</td></tr>'
+      ? '<tr class="empty-row"><td colspan="5">No forwards configured</td></tr>'
       : fwds.map(f => {
           const err = bindErrs[f.listen_port];
           const status = err
@@ -584,9 +962,9 @@ async function refresh() {
     // Whitelist
     const wl = whitelist.data.whitelist || [];
     document.getElementById('whitelist-body').innerHTML = wl.length === 0
-      ? '<tr class="empty-row"><td colspan="4">no entries</td></tr>'
+      ? '<tr class="empty-row"><td colspan="4">No entries</td></tr>'
       : wl.map(e => `<tr>
-          <td><strong>${esc(e.name)}</strong></td>
+          <td><div class="name-cell">${avatar(e.name,'var(--green-dim)','var(--green-text)','var(--green-border)')}<strong>${esc(e.name)}</strong></div></td>
           <td class="mono">${esc(e.ip)}</td>
           <td>${fmt.dt(e.created_at)}</td>
           <td><button class="btn btn-danger btn-sm" onclick="removeWhitelist('${esc(e.name)}')">Remove</button></td>
@@ -595,9 +973,9 @@ async function refresh() {
     // Tokens
     const tks = tokens.data.tokens || [];
     document.getElementById('tokens-body').innerHTML = tks.length === 0
-      ? '<tr class="empty-row"><td colspan="5">no tokens</td></tr>'
+      ? '<tr class="empty-row"><td colspan="5">No tokens</td></tr>'
       : tks.map(t => `<tr>
-          <td><strong>${esc(t.name)}</strong></td>
+          <td><div class="name-cell">${avatar(t.name,'var(--blue-dim)','var(--blue-text)','var(--blue-border)')}<strong>${esc(t.name)}</strong></div></td>
           <td>${fmt.dt(t.created_at)}</td>
           <td>${t.expires_at ? fmt.dt(t.expires_at) : '<span style="color:var(--muted)">never</span>'}</td>
           <td>${t.one_time ? '<span class="badge badge-yellow">one-time</span>' : '<span class="badge badge-blue">permanent</span>'}</td>
@@ -607,17 +985,15 @@ async function refresh() {
     // SSH Keys
     const keys = sshkeys.data.ssh_keys || [];
     document.getElementById('sshkeys-body').innerHTML = keys.length === 0
-      ? '<tr class="empty-row"><td colspan="3">no keys registered</td></tr>'
+      ? '<tr class="empty-row"><td colspan="3">No keys registered</td></tr>'
       : keys.map(k => `<tr>
-          <td><strong>${esc(k.name)}</strong></td>
+          <td><div class="name-cell">${avatar(k.name,'var(--yellow-dim)','var(--yellow-text)','var(--yellow-border)')}<strong>${esc(k.name)}</strong></div></td>
           <td>${fmt.dt(k.created_at)}</td>
           <td><button class="btn btn-danger btn-sm" onclick="removeSSHKey('${esc(k.name)}')">Remove</button></td>
         </tr>`).join('');
 
-    document.getElementById('last-updated').textContent = 'updated ' + new Date().toLocaleTimeString();
-    document.getElementById('status-dot').style.background = 'var(--green)';
   } catch(e) {
-    document.getElementById('status-dot').style.background = 'var(--red)';
+    // dot stays green; fetch errors are transient
   }
 }
 
