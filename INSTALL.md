@@ -124,7 +124,7 @@ sudo ./install.sh --server
   ─────────────────────────────────────────────
 ```
 
-**Save the token — share it with your team.**
+**Save that token** — it's the first team member's token. Create one per person (`auth-vpn server tokens add --name x`); each token can only be active in one place at a time.
 
 Close all container ports from the public internet — only port **7777 (TCP)** needs to be open:
 
@@ -337,37 +337,6 @@ auth-vpn runs an embedded SSH server on port **2222**. Tools like ToolJet can co
 | Password | Use any auth-vpn token as the SSH password (any username) |
 | System key | Any key in `~/.ssh/authorized_keys` on the server VM works automatically |
 
-### Step-by-step: ToolJet via SSH tunnel
-
-**1. Generate a keypair** (from the dashboard or API):
-
-```bash
-curl -X POST http://localhost:9100/api/ssh-keys/generate \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"tooljet-prod"}'
-# Response: { "name": "tooljet-prod", "private_key": "-----BEGIN RSA PRIVATE KEY-----\n..." }
-```
-
-The private key is returned **once** — copy it immediately.
-
-**2. Configure the ToolJet datasource:**
-
-```
-Connection type: SSH tunnel
-
-SSH Host:      <auth-vpn server public IP>
-SSH Port:      2222
-SSH Username:  any (e.g. "tooljet")
-SSH Auth:      Private key  ← paste the PEM private key
-
-Database Host: 127.0.0.1   ← relative to the auth-vpn server
-Database Port: 5432
-```
-
-**3. Open port 2222** in your firewall/NSG for the ToolJet VM's IP — no other ports needed.
-
-> The IP whitelist does **not** apply to SSH tunnel connections. Auth is entirely via key or token.
-
 ### SSH Keys API
 
 ```bash
@@ -419,7 +388,7 @@ sudo systemctl kill -s HUP auth-vpn
 
 ---
 
-## Part 10 — Server clients list (run on the server VM)
+## Part 10 — Server clients list and force-disconnect
 
 See who is currently connected:
 
@@ -431,6 +400,15 @@ sudo auth-vpn server clients
 NAME                  TUNNEL IP        CONNECTED AT
 dev-alice             10.8.0.2         2025-01-15 09:30:00
 ci-runner             10.8.0.3         2025-01-15 10:00:00
+```
+
+Force-disconnect a stuck or unwanted client (frees the token immediately):
+
+```bash
+# From the dashboard: Connected Clients → Kick button
+
+# Or via API:
+curl -X DELETE http://localhost:9100/api/clients/dev-alice
 ```
 
 ---
@@ -450,6 +428,34 @@ mysql   -h 10.8.0.1 -P 3306 -u root -p         # MySQL
 mongosh    10.8.0.1:27017                       # MongoDB
 redis-cli -h 10.8.0.1 -p 6379                  # Redis
 curl       http://10.8.0.1:8080/health          # any HTTP service
+```
+
+---
+
+## Updating
+
+Run one command — no reinstall, no config changes, no downtime on clients already connected.
+
+### Server VM
+
+```bash
+sudo auth-vpn update
+```
+
+Downloads the latest binary, replaces it atomically, then automatically restarts the `auth-vpn` systemd service. Connected clients will reconnect on their own if `--reconnect` is set.
+
+### Client (laptop or other VM)
+
+```bash
+sudo auth-vpn update
+```
+
+Same thing — downloads the latest binary and replaces it. Reconnect with `auth-vpn connect` as usual.
+
+### Check current version
+
+```bash
+auth-vpn version
 ```
 
 ---
@@ -537,10 +543,13 @@ After `make release`, the curl one-liners above automatically pick up the new ve
 | Role | Command | When |
 |---|---|---|
 | DevOps | `make release` | Shipping a new version |
+| DevOps | `sudo auth-vpn update` | Update server to latest release |
+| Dev / QA | `sudo auth-vpn update` | Update client to latest release |
 | DevOps | `curl ... \| sudo bash -s -- --server` | Once per VM that has containers |
 | DevOps | `make deploy-client VM=user@host` | Once per additional VM (alternative) |
 | Dev / QA | `curl ... \| sudo bash` then `auth-vpn connect staging` | Once per laptop |
 | Dev / QA | `auth-vpn disconnect` | When done for the day |
-| DevOps | `auth-vpn server tokens add --name x` | Onboarding new team member |
+| DevOps | `auth-vpn server tokens add --name x` | Onboarding new team member (one token per person) |
 | DevOps | `auth-vpn server tokens revoke --name x` | Offboarding |
 | DevOps | `sudo auth-vpn server clients` | Check who is connected |
+| DevOps | Dashboard → Clients → Kick | Force-disconnect a stuck client |

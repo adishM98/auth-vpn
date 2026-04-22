@@ -57,7 +57,7 @@ At the end you'll see:
   ─────────────────────────────────────────────
 ```
 
-**Save that token.** Share it with anyone who needs access.
+**Save that token** — it's the first team member's token. Create one per person; each token can only be active in one place at a time.
 
 ### 2 — Client (dev/QA laptop or another VM)
 
@@ -205,7 +205,7 @@ auth-vpn profile list
 After `server install`, a dashboard is available at `http://localhost:9100/ui` on the server:
 
 - Live stats: active clients, total connections, auth failures, bytes in/out, uptime
-- Connected clients table with tunnel IP and connection time
+- Connected clients table with tunnel IP, connection time, bytes in/out, and a **Kick** button to force-disconnect any client instantly
 - Token management: create and revoke tokens from the browser
 - **IP Whitelist**: add/remove IPs or CIDRs that can connect without a token
 - **SSH Keys**: generate server-side RSA keypairs or register existing public keys for SSH tunnel auth
@@ -325,24 +325,6 @@ This lets tools like ToolJet connect to backend services using a plain SSH datas
 3. Copy the private key — it is shown only once, never stored server-side
 4. Paste it into your SSH client or ToolJet datasource
 
-### ToolJet datasource setup (SSH tunnel)
-
-In ToolJet, edit your PostgreSQL datasource:
-
-```
-Connection type: SSH tunnel
-
-SSH Host:     <auth-vpn server public IP>
-SSH Port:     2222
-SSH Username: any (e.g. "tooljet")
-SSH Auth:     Private key  ← paste the generated PEM key
-
-Database Host: 127.0.0.1   ← relative to the auth-vpn server
-Database Port: 5432
-```
-
-ToolJet connects to auth-vpn's SSH server, authenticates with the key, then opens a forwarded TCP connection to `127.0.0.1:5432` on the server — reaching postgres directly, without any VPN client or whitelisted IP.
-
 ### API
 
 ```bash
@@ -421,6 +403,16 @@ The server exposes a ToolJet-compatible HTTP API at `http://localhost:9100/toolj
 GET /tooljet/status          — server health + active client count
 GET /tooljet/clients         — list of connected devices
 GET /tooljet/probe?host=IP&port=N  — verify a host:port is reachable via VPN
+```
+
+### Connected clients API
+
+```bash
+# List connected clients
+curl http://localhost:9100/api/clients
+
+# Force-disconnect a client by name (frees the token immediately)
+curl -X DELETE http://localhost:9100/api/clients/dev-alice
 ```
 
 Protect with an API key (set in `server.yaml` or `--api-key` flag):
@@ -566,7 +558,7 @@ make build-all          # all four platforms
 │  │  server      │    │                   │  │
 │  │  :7777 (TLS) │    │  postgres :5432   │  │
 │  │  :9100 (HTTP)│    │  mysql    :3306   │  │
-│  │              │    │  redis    :6379   │  │
+│  │  :2222 (SSH) │    │  redis    :6379   │  │
 │  │  TUN: tun0   │    │  ...              │  │
 │  │  10.8.0.1/24 │    └───────────────────┘  │
 │  └──────────────┘                           │
@@ -623,6 +615,28 @@ Types: Auth(0x01) AuthOK(0x02) AuthFail(0x03) IPPacket(0x04)
 | `make deploy-client VM=user@host` | Build + deploy client on remote VM |
 | `make release` | Build all + publish GitHub release |
 | `make clean` | Remove `dist/` |
+
+---
+
+## Updating
+
+A single command updates the binary and (on the server) restarts the service automatically:
+
+```bash
+# Server VM
+sudo auth-vpn update
+
+# Client (laptop or other VM)
+sudo auth-vpn update
+```
+
+`auth-vpn update` checks the latest GitHub release, downloads the right binary for your platform, atomically replaces the running binary, and — if the `auth-vpn` systemd service is active — restarts it. No config files are touched.
+
+Check the current version at any time:
+
+```bash
+auth-vpn version
+```
 
 ---
 
