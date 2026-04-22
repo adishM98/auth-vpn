@@ -904,22 +904,22 @@ function avatar(name, bg, color, border) {
   const b = bg    || 'var(--accent-dim)';
   const c = color || 'var(--accent2)';
   const e = border|| 'rgba(99,102,241,.22)';
-  return `<div class="name-avatar" style="background:${b};color:${c};border-color:${e}">${esc(name[0])}</div>`;
+  return `<div class="name-avatar" style="background:${b};color:${c};border-color:${e}">${esc((name || '?')[0])}</div>`;
 }
 
 // ── Refresh ──
 async function refresh() {
   try {
-    const [health, clients, tokens, whitelist, forwards, sshkeys] = await Promise.all([
+    const [health, clients, tokens, whitelist, forwards, sshkeys, metricsText] = await Promise.all([
       api('/health'), api('/api/clients'), api('/api/tokens'),
       api('/api/whitelist'), api('/api/forwards'), api('/api/ssh-keys'),
+      fetch('/metrics', { headers: API_KEY ? {'Authorization':'Bearer '+API_KEY} : {} }).then(r=>r.text()).catch(()=>''),
     ]);
 
     document.getElementById('s-active').textContent = health.data.clients ?? 0;
-    document.getElementById('s-uptime').textContent = fmt.uptime(parseFloat(health.data.uptime));
+    document.getElementById('s-uptime').textContent = fmt.uptime(health.data.uptime);
 
-    const metrics = await fetch('/metrics', { headers: API_KEY ? {'Authorization':'Bearer '+API_KEY} : {} }).then(r=>r.text()).catch(()=>'');
-    const get = name => { const m = metrics.match(new RegExp('^'+name+' (\\d+)', 'm')); return m ? parseInt(m[1]) : 0; };
+    const get = name => { const m = metricsText.match(new RegExp('^'+name+' (\\d+)', 'm')); return m ? parseInt(m[1]) : 0; };
     document.getElementById('s-failures').textContent = get('auth_vpn_auth_failures_total');
 
     // Clients — must be declared before Data In/Out which reference it
@@ -936,7 +936,7 @@ async function refresh() {
           <td class="mono">${fmt.bytes(c.bytes_in||0)}</td>
           <td class="mono">${fmt.bytes(c.bytes_out||0)}</td>
           <td><span class="badge badge-green">● online</span></td>
-          <td><button class="btn btn-danger btn-sm" onclick="kickClient('${esc(c.name)}')">Kick</button></td>
+          <td><button class="btn btn-danger btn-sm" data-name="${esc(c.name)}" onclick="kickClient(this.dataset.name)">Kick</button></td>
         </tr>`).join('');
     document.getElementById('clients-body').innerHTML = clientRow;
     document.getElementById('clients-body2').innerHTML = clientRow;
@@ -947,7 +947,7 @@ async function refresh() {
     document.getElementById('forwards-body').innerHTML = fwds.length === 0
       ? '<tr class="empty-row"><td colspan="5">No forwards configured</td></tr>'
       : fwds.map(f => {
-          const err = bindErrs[f.listen_port];
+          const err = bindErrs[String(f.listen_port)];
           const status = err
             ? `<span class="badge badge-red" title="${esc(err)}">⚠ bind failed</span>`
             : `<span class="badge badge-green">● listening</span>`;
@@ -956,7 +956,7 @@ async function refresh() {
             <td class="mono">${esc(f.target)}</td>
             <td>${status}</td>
             <td>${fmt.dt(f.created_at)}</td>
-            <td><button class="btn btn-danger btn-sm" onclick="removeForward(${f.listen_port})">Remove</button></td>
+            <td><button class="btn btn-danger btn-sm" data-port="${f.listen_port}" onclick="removeForward(Number(this.dataset.port))">Remove</button></td>
           </tr>`;
         }).join('');
 
@@ -968,7 +968,7 @@ async function refresh() {
           <td><div class="name-cell">${avatar(e.name,'var(--green-dim)','var(--green-text)','var(--green-border)')}<strong>${esc(e.name)}</strong></div></td>
           <td class="mono">${esc(e.ip)}</td>
           <td>${fmt.dt(e.created_at)}</td>
-          <td><button class="btn btn-danger btn-sm" onclick="removeWhitelist('${esc(e.name)}')">Remove</button></td>
+          <td><button class="btn btn-danger btn-sm" data-name="${esc(e.name)}" onclick="removeWhitelist(this.dataset.name)">Remove</button></td>
         </tr>`).join('');
 
     // Tokens
@@ -980,7 +980,7 @@ async function refresh() {
           <td>${fmt.dt(t.created_at)}</td>
           <td>${t.expires_at ? fmt.dt(t.expires_at) : '<span style="color:var(--muted)">never</span>'}</td>
           <td>${t.one_time ? '<span class="badge badge-yellow">one-time</span>' : '<span class="badge badge-blue">permanent</span>'}</td>
-          <td><button class="btn btn-danger btn-sm" onclick="revokeToken('${esc(t.name)}')">Revoke</button></td>
+          <td><button class="btn btn-danger btn-sm" data-name="${esc(t.name)}" onclick="revokeToken(this.dataset.name)">Revoke</button></td>
         </tr>`).join('');
 
     // SSH Keys
@@ -990,12 +990,12 @@ async function refresh() {
       : keys.map(k => `<tr>
           <td><div class="name-cell">${avatar(k.name,'var(--yellow-dim)','var(--yellow-text)','var(--yellow-border)')}<strong>${esc(k.name)}</strong></div></td>
           <td>${fmt.dt(k.created_at)}</td>
-          <td><button class="btn btn-danger btn-sm" onclick="removeSSHKey('${esc(k.name)}')">Remove</button></td>
+          <td><button class="btn btn-danger btn-sm" data-name="${esc(k.name)}" onclick="removeSSHKey(this.dataset.name)">Remove</button></td>
         </tr>`).join('');
 
     document.getElementById('last-updated').textContent = '· ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
   } catch(e) {
-    // dot stays green; fetch errors are transient
+    console.error('refresh error:', e);
   }
 }
 

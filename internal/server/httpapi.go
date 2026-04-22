@@ -62,7 +62,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "ok",
-		"uptime":  time.Since(s.metrics.startTime).String(),
+		"uptime":  time.Since(s.metrics.startTime).Seconds(),
 		"clients": s.metrics.activeConns.Load(),
 	})
 }
