@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -207,13 +206,8 @@ func (m *proxyMux) handleLocalConn(localConn net.Conn, rule ForwardRule) {
 // ConnectProxy dials the server in proxy mode and starts local TCP listeners
 // for each forward rule. It blocks until the tunnel is torn down.
 func ConnectProxy(opts Options, forwards []ForwardRule) error {
-	tlsCfg := &tls.Config{
-		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: opts.Insecure, //nolint:gosec
-	}
-
 	log.Printf("connecting to %s (proxy mode) ...", opts.ServerAddr)
-	conn, err := tls.Dial("tcp", opts.ServerAddr, tlsCfg)
+	conn, err := DialTLS(opts.ServerAddr, opts.Insecure)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", opts.ServerAddr, err)
 	}

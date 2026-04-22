@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
@@ -42,13 +41,8 @@ type Profile struct {
 // Connect dials the server, authenticates, sets up the TUN interface,
 // then forwards all traffic. Blocks until the tunnel is torn down.
 func Connect(opts Options) error {
-	tlsCfg := &tls.Config{
-		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: opts.Insecure, //nolint:gosec // user opt-in for dev
-	}
-
 	log.Printf("connecting to %s ...", opts.ServerAddr)
-	conn, err := tls.Dial("tcp", opts.ServerAddr, tlsCfg)
+	conn, err := DialTLS(opts.ServerAddr, opts.Insecure)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", opts.ServerAddr, err)
 	}

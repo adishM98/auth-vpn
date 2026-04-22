@@ -542,8 +542,8 @@ async function refresh() {
     const get = name => { const m = metrics.match(new RegExp('^'+name+' (\\d+)', 'm')); return m ? parseInt(m[1]) : 0; };
     document.getElementById('s-total').textContent = get('auth_vpn_connections_total');
     document.getElementById('s-failures').textContent = get('auth_vpn_auth_failures_total');
-    document.getElementById('s-in').textContent = fmt.bytes(get('auth_vpn_bytes_in_total'));
-    document.getElementById('s-out').textContent = fmt.bytes(get('auth_vpn_bytes_out_total'));
+    document.getElementById('s-in').textContent = fmt.bytes(cls.reduce((s, c) => s + (c.bytes_in||0), 0));
+    document.getElementById('s-out').textContent = fmt.bytes(cls.reduce((s, c) => s + (c.bytes_out||0), 0));
 
     // Clients
     const cls = clients.data.clients || [];

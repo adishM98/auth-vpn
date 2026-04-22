@@ -386,8 +386,9 @@ func connectCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&token, "token", "t", "", "Auth token")
 	cmd.Flags().BoolVar(&background, "background", false, "Suppress interactive output and write PID state file")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until server is reachable before connecting (CI use)")
-	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification (dev only)")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification")
 	cmd.Flags().BoolVar(&reconnect, "reconnect", false, "Auto-reconnect with exponential backoff on unexpected drop")
+	cmd.Flags().MarkHidden("insecure") //nolint:errcheck
 	cmd.Flags().StringArrayVar(&forwardRules, "forward", nil, "Forward local port to remote (localPort:remoteHost:remotePort), e.g. 5432:10.8.0.1:5432")
 	return cmd
 }
