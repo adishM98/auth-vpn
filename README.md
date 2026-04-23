@@ -57,7 +57,7 @@ At the end you'll see:
   ─────────────────────────────────────────────
 ```
 
-**Save that token** — it's the first team member's token. Create one per person; each token can only be active in one place at a time.
+**Save that token** — it's the first team member's token. Create one per person, one for CI, one for each external service. Revoke any individual token without affecting anyone else.
 
 ### 2 — Client (dev/QA laptop or another VM)
 
@@ -101,7 +101,7 @@ auth-vpn connect staging --background --reconnect  # auto-reconnect on drop
 - **Token auth** — SHA-256 hashed tokens stored on server, raw token never persisted
 - **SSH key auth** — connect the embedded SSH server using an RSA key pair; generate server-side or register your own; system `authorized_keys` automatically trusted
 - **Rate limiting** — 5 failed auth attempts = 60 second IP ban
-- **Concurrent token prevention** — same token cannot be used from two places simultaneously
+- **Ephemeral tokens** — `--github-action` flag auto-mints a unique per-job token so parallel CI jobs never share credentials; token is revoked automatically on exit
 - **Token controls** — permanent, expiring, or one-time tokens; revoke any token instantly without restarting the server
 - **ACL rules** — per-device allow/deny lists enforced at the packet level (optional)
 - **API key** — Bearer token required for the Web UI and HTTP API (optional)
@@ -157,8 +157,8 @@ auth-vpn connect staging --background --reconnect
 # Wait until server is reachable before connecting (useful in CI)
 auth-vpn connect staging --background --wait
 
-# Skip TLS verification (dev/local testing only)
-auth-vpn connect staging --insecure
+# GitHub Actions: auto-mint a unique ephemeral token per job (reads AUTH_VPN_API_KEY env var)
+auth-vpn connect $VPN_HOST --github-action --forward 5432:localhost:5432 --background
 
 # Check tunnel status
 auth-vpn status
@@ -509,19 +509,29 @@ services:
 
 ## Use in CI / CD
 
+`--github-action` is the recommended way to connect from GitHub Actions. It reads `AUTH_VPN_API_KEY` from the environment, mints a unique ephemeral token per job (named after the run ID + job name so it's auditable), connects, and revokes the token automatically when the job finishes. Parallel jobs each get their own token — no collisions.
+
+`VPN_API_KEY` is the `api_key` value printed by the server installer (also visible in `/etc/auth-vpn/server.yaml`). Set it once as a GitHub repository secret.
+
 ```yaml
 # GitHub Actions example
 - name: Install auth-vpn
-  run: |
-    curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
+  run: curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
 
-- name: Connect to staging
-  run: |
-    auth-vpn profile save staging --host ${{ secrets.VPN_HOST }} --token ${{ secrets.VPN_TOKEN }}
-    auth-vpn connect staging --background --wait
+- name: Connect to VM
+  run: auth-vpn connect ${{ secrets.VPN_HOST }} --github-action --forward 5432:localhost:5432 --background --wait
+  env:
+    AUTH_VPN_API_KEY: ${{ secrets.VPN_API_KEY }}
 
-- name: Run tests against staging DB
-  run: psql -h 10.8.0.1 -p 5432 -U postgres -c '\l'
+- name: Run tests
+  run: make test
+```
+
+For non-GitHub CI environments (GitLab, Bitbucket, etc.) or when you want a named long-lived token:
+
+```yaml
+- name: Connect to VM
+  run: auth-vpn connect ${{ secrets.VPN_HOST }} --token ${{ secrets.VPN_TOKEN }} --forward 5432:localhost:5432 --background --wait
 ```
 
 ---

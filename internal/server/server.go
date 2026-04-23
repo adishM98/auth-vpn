@@ -327,15 +327,6 @@ func (s *Server) handleConn(conn net.Conn) {
 			return
 		}
 		s.limiter.Reset(remoteIP)
-
-		// Prevent concurrent use of the same token.
-		if !s.tokens.TryClaim(req.Token) {
-			log.Printf("token %q already in use, rejecting %s", tok.Name, remoteIP)
-			_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
-				protocol.Encode(protocol.AuthFailResponse{Reason: "token already in use"}))
-			return
-		}
-		defer s.tokens.Unclaim(req.Token)
 		clientName = tok.Name
 	}
 

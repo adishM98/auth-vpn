@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"strconv"
@@ -326,8 +329,9 @@ func serverClientsCmd() *cobra.Command {
 // ─── connect ─────────────────────────────────────────────────────────────────
 
 func connectCmd() *cobra.Command {
-	var token string
-	var background, wait, insecure, reconnect bool
+	var token, apiKey string
+	var apiPort int
+	var background, wait, insecure, reconnect, githubAction bool
 	var forwardRules []string
 
 	cmd := &cobra.Command{
@@ -356,6 +360,41 @@ func connectCmd() *cobra.Command {
 				}
 			} else {
 				opts.ServerAddr = target
+			}
+
+			// --github-action: reads AUTH_VPN_API_KEY from the environment and
+			// generates a unique ephemeral token per job using GitHub's own env vars
+			// (GITHUB_RUN_ID, GITHUB_JOB, GITHUB_RUN_ATTEMPT). Safe for parallel
+			// matrix jobs — each gets its own token, revoked on disconnect.
+			if githubAction {
+				if opts.Token != "" {
+					return fmt.Errorf("--github-action and --token are mutually exclusive")
+				}
+				apiKey = os.Getenv("AUTH_VPN_API_KEY")
+				if apiKey == "" {
+					return fmt.Errorf("--github-action requires AUTH_VPN_API_KEY env var to be set")
+				}
+			}
+
+			// --api-key: generate a short-lived ephemeral token via the HTTP API.
+			// Designed for CI/CD pipelines where multiple parallel jobs share one API key
+			// secret. Each job gets its own unique token; it is revoked automatically
+			// when the tunnel drops.
+			if apiKey != "" {
+				if opts.Token != "" {
+					return fmt.Errorf("--api-key and --token are mutually exclusive")
+				}
+				host, _, err := net.SplitHostPort(opts.ServerAddr)
+				if err != nil {
+					host = opts.ServerAddr
+				}
+				apiURL := "http://" + net.JoinHostPort(host, strconv.Itoa(apiPort))
+				tok, name, err := generateEphemeralToken(apiURL, apiKey, githubAction)
+				if err != nil {
+					return fmt.Errorf("generate ephemeral token: %w", err)
+				}
+				opts.Token = tok
+				defer revokeEphemeralToken(apiURL, apiKey, name)
 			}
 
 			if wait {
@@ -388,9 +427,85 @@ func connectCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until server is reachable before connecting (CI use)")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification")
 	cmd.Flags().BoolVar(&reconnect, "reconnect", false, "Auto-reconnect with exponential backoff on unexpected drop")
-	cmd.Flags().MarkHidden("insecure") //nolint:errcheck
 	cmd.Flags().StringArrayVar(&forwardRules, "forward", nil, "Forward local port to remote (localPort:remoteHost:remotePort), e.g. 5432:10.8.0.1:5432")
+
+	// Hidden flags — for CI/CD use; not shown in --help.
+	cmd.Flags().BoolVar(&githubAction, "github-action", false, "Ephemeral token mode for GitHub Actions. Reads AUTH_VPN_API_KEY env var; generates a unique token per job and revokes it on disconnect.")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "Generate a unique ephemeral token via the server API (for CI/CD parallel jobs). Revoked automatically on disconnect.")
+	cmd.Flags().IntVar(&apiPort, "api-port", 9100, "HTTP API port to use with --api-key or --github-action (default 9100)")
+	cmd.Flags().MarkHidden("github-action") //nolint:errcheck
+	cmd.Flags().MarkHidden("api-key")       //nolint:errcheck
+	cmd.Flags().MarkHidden("api-port")      //nolint:errcheck
+	cmd.Flags().MarkHidden("insecure")      //nolint:errcheck
 	return cmd
+}
+
+// generateEphemeralToken calls POST /api/tokens on the server to create a
+// short-lived token for this specific connection. Used by --api-key and
+// --github-action so each parallel CI job gets its own independent token.
+func generateEphemeralToken(apiURL, apiKey string, useGithubEnv bool) (tokenValue, tokenName string, err error) {
+	var name string
+	if useGithubEnv {
+		// Build a unique name from GitHub's own env vars so the token is
+		// identifiable in the dashboard: e.g. "gh-12345678-integration-1"
+		runID := os.Getenv("GITHUB_RUN_ID")
+		job := os.Getenv("GITHUB_JOB")
+		attempt := os.Getenv("GITHUB_RUN_ATTEMPT")
+		if runID != "" {
+			name = fmt.Sprintf("gh-%s-%s-%s", runID, job, attempt)
+		}
+	}
+	if name == "" {
+		b := make([]byte, 6)
+		if _, err = rand.Read(b); err != nil {
+			return "", "", fmt.Errorf("random name: %w", err)
+		}
+		name = fmt.Sprintf("ephemeral-%x", b)
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":     name,
+		"one_time": false, // revoked explicitly on disconnect; false allows clean reconnects
+	})
+
+	req, err := http.NewRequest(http.MethodPost, apiURL+"/api/tokens", bytes.NewReader(body))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	c := &http.Client{Timeout: 10 * time.Second}
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("reach server API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return "", "", fmt.Errorf("server returned HTTP %d (check --api-key and --api-port)", resp.StatusCode)
+	}
+
+	var result struct {
+		Token string `json:"token"`
+		Name  string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", "", fmt.Errorf("decode token response: %w", err)
+	}
+	return result.Token, result.Name, nil
+}
+
+// revokeEphemeralToken deletes the token created by generateEphemeralToken.
+// Called via defer so it runs when the tunnel drops, even on error paths.
+func revokeEphemeralToken(apiURL, apiKey, name string) {
+	req, err := http.NewRequest(http.MethodDelete, apiURL+"/api/tokens/"+name, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	c := &http.Client{Timeout: 10 * time.Second}
+	c.Do(req) //nolint:errcheck
 }
 
 // parseForwardRules parses --forward flags of the form localPort:remoteHost:remotePort.
