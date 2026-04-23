@@ -158,7 +158,8 @@ auth-vpn connect staging --background --reconnect
 auth-vpn connect staging --background --wait
 
 # GitHub Actions: auto-mint a unique ephemeral token per job (reads AUTH_VPN_API_KEY env var)
-auth-vpn connect $VPN_HOST --github-action --forward 5432:localhost:5432 --background
+# Note: run with & so the step doesn't block; use `auth-vpn disconnect` at the end to revoke the token
+auth-vpn connect $VPN_HOST --github-action --forward 5432:localhost:5432 &
 
 # Check tunnel status
 auth-vpn status
@@ -513,18 +514,30 @@ services:
 
 `VPN_API_KEY` is the `api_key` value printed by the server installer (also visible in `/etc/auth-vpn/server.yaml`). Set it once as a GitHub repository secret.
 
+The admin API runs on port 9100 (HTTP). To protect the API key, auth-vpn never sends it over plaintext HTTP to a non-local address — it always calls `http://localhost:9100` by default. Forward port 9100 over your existing SSH access before connecting:
+
 ```yaml
 # GitHub Actions example
 - name: Install auth-vpn
   run: curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
 
+- name: Forward API port (keeps API key off the public internet)
+  run: ssh -f -N -L 9100:localhost:9100 -i ~/.ssh/vm_key azureuser@${{ secrets.VM_IP }}
+
 - name: Connect to VM
-  run: auth-vpn connect ${{ secrets.VPN_HOST }} --github-action --forward 5432:localhost:5432 --background --wait
+  run: |
+    auth-vpn connect ${{ secrets.VPN_HOST }} --github-action --forward 5432:localhost:5432 &
+    # Wait until the tunnel is up before proceeding
+    for i in $(seq 1 15); do auth-vpn status && break || sleep 2; done
   env:
     AUTH_VPN_API_KEY: ${{ secrets.VPN_API_KEY }}
 
 - name: Run tests
   run: make test
+
+- name: Disconnect (always runs, triggers token revocation)
+  if: always()
+  run: auth-vpn disconnect
 ```
 
 For non-GitHub CI environments (GitLab, Bitbucket, etc.) or when you want a named long-lived token:

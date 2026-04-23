@@ -101,14 +101,25 @@ func (s *Server) handleAPITokens(w http.ResponseWriter, r *http.Request) {
 		})
 	case http.MethodPost:
 		var body struct {
-			Name    string `json:"name"`
-			OneTime bool   `json:"one_time"`
+			Name      string `json:"name"`
+			OneTime   bool   `json:"one_time"`
+			ExpiresIn string `json:"expires_in"` // optional, e.g. "2h" or "30m"
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
 			return
 		}
-		raw, err := s.tokens.Add(body.Name, nil, body.OneTime)
+		var expiresAt *time.Time
+		if body.ExpiresIn != "" {
+			d, err := time.ParseDuration(body.ExpiresIn)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid expires_in: " + err.Error()})
+				return
+			}
+			t := time.Now().UTC().Add(d)
+			expiresAt = &t
+		}
+		raw, err := s.tokens.Add(body.Name, expiresAt, body.OneTime)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
