@@ -19,14 +19,15 @@ REPO="adishM98/auth-vpn"
 INSTALL_DIR="/usr/local/bin"
 SERVER_PORT="${TJ_VPN_PORT:-7777}"
 MODE="client"
+_PORT_EXPLICIT=false
 
 # Allow pinning a specific version: VERSION=v1.2.3 ./install.sh
 VERSION="${VERSION:-latest}"
 
 for arg in "$@"; do
   case $arg in
-    --server)   MODE="server" ;;
-    --port=*)   SERVER_PORT="${arg#*=}" ;;
+    --server)    MODE="server" ;;
+    --port=*)    SERVER_PORT="${arg#*=}"; _PORT_EXPLICIT=true ;;
     --version=*) VERSION="${arg#*=}" ;;
   esac
 done
@@ -244,6 +245,29 @@ install_binary() {
   ok "Installed → ${dest}"
 }
 
+# ── prompt for tunnel port (server mode only) ─────────────────────────────────
+prompt_port() {
+  # Skip if port was already set via flag/env, or if stdin isn't a terminal
+  # (e.g. piped curl install — non-interactive).
+  if [[ "$_PORT_EXPLICIT" == true ]] || [[ ! -t 0 ]]; then
+    return
+  fi
+
+  local input
+  while true; do
+    read -rp "  Enter tunnel port [${SERVER_PORT}]: " input </dev/tty
+    input="${input// /}"
+    if [[ -z "$input" ]]; then
+      break  # keep default
+    fi
+    if [[ "$input" =~ ^[0-9]+$ ]] && (( input >= 1 && input <= 65535 )); then
+      SERVER_PORT="$input"
+      break
+    fi
+    warn "Invalid port — must be a number between 1 and 65535."
+  done
+}
+
 # ── server setup ──────────────────────────────────────────────────────────────
 setup_server() {
   [[ $EUID -ne 0 ]] && fail "Server setup requires root. Run:\n    curl -fsSL https://github.com/${REPO}/releases/latest/download/install.sh | sudo bash -s -- --server"
@@ -251,6 +275,8 @@ setup_server() {
   echo ""
   bold "Configuring auth-vpn server..."
   echo ""
+
+  prompt_port
 
   "${INSTALL_DIR}/${BINARY}" server install --port "$SERVER_PORT"
 

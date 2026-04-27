@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"bufio"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -51,7 +53,7 @@ func serverCmd() *cobra.Command {
 		Use:   "server",
 		Short: "Manage the auth-vpn server",
 	}
-	cmd.AddCommand(serverInstallCmd(), serverStartCmd(), serverTokensCmd(), serverClientsCmd())
+	cmd.AddCommand(serverInstallCmd(), serverStartCmd(), serverTokensCmd(), serverClientsCmd(), serverChangePortCmd())
 	return cmd
 }
 
@@ -90,6 +92,76 @@ func serverInstallCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVarP(&port, "port", "p", 7777, "Port to listen on")
 	return cmd
+}
+
+func serverChangePortCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "change-port",
+		Short: "Change the tunnel listen port and restart the service",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := server.LoadServerConfig(server.ServerConfigFile)
+			if err != nil {
+				return fmt.Errorf("load server config: %w", err)
+			}
+			currentPort := cfg.Port
+			if currentPort == 0 {
+				currentPort = 7777
+			}
+
+			fmt.Printf("\n  Current tunnel port: %d\n", currentPort)
+			fmt.Printf("  Enter new port [%d]: ", currentPort)
+
+			scanner := bufio.NewScanner(os.Stdin)
+			scanner.Scan()
+			input := strings.TrimSpace(scanner.Text())
+
+			newPort := currentPort
+			if input != "" {
+				p, err := strconv.Atoi(input)
+				if err != nil || p < 1 || p > 65535 {
+					return fmt.Errorf("invalid port %q: must be a number between 1 and 65535", input)
+				}
+				newPort = p
+			}
+
+			if newPort == currentPort {
+				fmt.Printf("  Port unchanged (%d)\n\n", currentPort)
+				return nil
+			}
+
+			cfg.Port = newPort
+			if err := server.SaveServerConfig(server.ServerConfigFile, cfg); err != nil {
+				return fmt.Errorf("save server config: %w", err)
+			}
+			fmt.Printf("  ✓ server.yaml updated: port → %d\n", newPort)
+
+			if err := server.WriteSystemdService(newPort); err != nil {
+				fmt.Fprintf(os.Stderr, "  warning: update systemd service: %v\n", err)
+			} else {
+				fmt.Println("  ✓ systemd service updated")
+			}
+
+			if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
+				fmt.Fprintf(os.Stderr, "  warning: daemon-reload: %v %s\n", err, out)
+			}
+			if out, err := exec.Command("systemctl", "restart", "auth-vpn").CombinedOutput(); err != nil {
+				fmt.Fprintf(os.Stderr, "  warning: restart auth-vpn: %v %s\n", err, out)
+				fmt.Println("  Run manually: sudo systemctl daemon-reload && sudo systemctl restart auth-vpn")
+			} else {
+				fmt.Println("  ✓ auth-vpn restarted")
+			}
+
+			fmt.Println()
+			fmt.Println("  ─────────────────────────────────────────────")
+			fmt.Printf("  ⚠  Next steps:\n")
+			fmt.Printf("     1. Open port %d in your firewall / NSG\n", newPort)
+			fmt.Printf("     2. Close port %d in your firewall / NSG\n", currentPort)
+			fmt.Printf("     3. Update DATASOURCE_VPN_HOST to <ip>:%d\n", newPort)
+			fmt.Println("  ─────────────────────────────────────────────")
+			fmt.Println()
+			return nil
+		},
+	}
 }
 
 func serverStartCmd() *cobra.Command {

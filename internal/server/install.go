@@ -48,8 +48,12 @@ func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 		publicIP = "<your-vm-ip>"
 	}
 
-	if err = generateSelfSignedCert(publicIP, CertFile, KeyFile); err != nil {
-		return "", "", "", fmt.Errorf("generate TLS cert: %w", err)
+	// Only generate a TLS cert on a fresh install — skip if one already exists
+	// so that updates don't invalidate existing client connections.
+	if _, statErr := os.Stat(CertFile); os.IsNotExist(statErr) {
+		if err = generateSelfSignedCert(publicIP, CertFile, KeyFile); err != nil {
+			return "", "", "", fmt.Errorf("generate TLS cert: %w", err)
+		}
 	}
 
 	tm, err := auth.NewManager(TokensFile)
@@ -74,13 +78,33 @@ func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 		rawToken = "<existing — run: auth-vpn server tokens list>"
 	}
 
-	apiKey, err = generateAPIKey()
-	if err != nil {
-		return "", "", "", fmt.Errorf("generate API key: %w", err)
+	// Load existing server.yaml if present so custom settings (forward_bind_addr,
+	// subnet, api_key, etc.) are preserved across updates.
+	var cfg ServerConfig
+	if existingCfg, loadErr := LoadServerConfig(ServerConfigFile); loadErr == nil {
+		cfg = existingCfg
+		// Update port only if a non-zero value was explicitly requested.
+		if port != 0 {
+			cfg.Port = port
+		}
+		// Re-use the existing API key so the dashboard stays accessible after update.
+		if cfg.APIKey != "" {
+			apiKey = cfg.APIKey
+		} else {
+			if apiKey, err = generateAPIKey(); err != nil {
+				return "", "", "", fmt.Errorf("generate API key: %w", err)
+			}
+			cfg.APIKey = apiKey
+		}
+	} else {
+		// Fresh install — start from defaults.
+		if apiKey, err = generateAPIKey(); err != nil {
+			return "", "", "", fmt.Errorf("generate API key: %w", err)
+		}
+		cfg = DefaultServerConfig(port)
+		cfg.APIKey = apiKey
 	}
 
-	cfg := DefaultServerConfig(port)
-	cfg.APIKey = apiKey
 	if err = SaveServerConfig(ServerConfigFile, cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: write server.yaml: %v\n", err)
 	}
@@ -89,7 +113,7 @@ func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 		fmt.Fprintf(os.Stderr, "warning: write acl.yaml: %v\n", err)
 	}
 
-	if err = writeSystemdService(port); err != nil {
+	if err = WriteSystemdService(port); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 		err = nil
 	}
@@ -197,7 +221,7 @@ func generateSelfSignedCert(host, certPath, keyPath string) error {
 	return pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 }
 
-func writeSystemdService(port int) error {
+func WriteSystemdService(port int) error {
 	exe, _ := os.Executable()
 	svc := fmt.Sprintf(`[Unit]
 Description=auth-vpn tunnel server
