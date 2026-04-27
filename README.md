@@ -9,7 +9,7 @@ Built for the common case: a team that needs secure access to services running i
 ## How it works
 
 ```
-VM (Docker containers)   ←   auth-vpn server   (port 7777, TLS)
+VM (Docker containers)   ←   auth-vpn server   (configurable port, TLS)
           │
           │  encrypted TLS 1.3 tunnel
           │
@@ -44,6 +44,14 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 ```
 
 No Go, no Git, nothing to install first. The script detects your platform, downloads the right binary, generates a self-signed TLS cert, creates an initial access token, and registers a systemd service.
+
+The installer will prompt you for the tunnel port:
+
+```
+  Enter tunnel port [7777]:
+```
+
+Press Enter to keep the default (`7777`), or type any port you prefer. If port 7777 is already taken on your VM, enter a different one here.
 
 At the end you'll see:
 
@@ -105,7 +113,7 @@ auth-vpn connect staging --background --reconnect  # auto-reconnect on drop
 - **Token controls** — permanent, expiring, or one-time tokens; revoke any token instantly without restarting the server
 - **ACL rules** — per-device allow/deny lists enforced at the packet level (optional)
 - **API key** — Bearer token required for the Web UI and HTTP API (optional)
-- **Single port** — close all container ports from the internet, only 7777 TCP needs to be open
+- **Single port** — close all container ports from the internet; only the tunnel port (default `7777`, configurable at install or via `server change-port`) needs to be open
 - **IP whitelist** — static IPs/CIDRs (VMs, PaaS) can connect without a token; managed from the dashboard
 - **Direct forwards** — expose backend ports to whitelisted IPs with no auth-vpn client required
 - **SSH tunnel** — ToolJet and other tools connect via standard SSH port forwarding; no auth-vpn binary needed on the client side
@@ -117,8 +125,14 @@ auth-vpn connect staging --background --reconnect  # auto-reconnect on drop
 ### Server
 
 ```bash
-# Install + configure (run once per VM)
-sudo auth-vpn server install --port 7777
+# Install + configure (run once per VM — prompts for tunnel port)
+sudo auth-vpn server install
+
+# Install with a specific port (skips the prompt)
+sudo auth-vpn server install --port 8888
+
+# Change the tunnel port after installation (prompts for new port, restarts service)
+sudo auth-vpn server change-port
 
 # Start the server (systemd handles this automatically after install)
 sudo auth-vpn server start
@@ -448,11 +462,11 @@ curl         http://10.8.0.1:8080/health
 ### Single curl command (recommended — no dependencies needed)
 
 ```bash
-# Server
+# Server — prompts for the tunnel port interactively (default 7777)
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | sudo bash -s -- --server
 
-# Server on a custom port
+# Server on a specific port (skips the prompt — useful for automation)
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | sudo bash -s -- --server --port=8888
 
@@ -464,6 +478,8 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | sudo bash -s -- --version=v1.2.3
 ```
+
+> **Non-interactive installs** (piped curl, CI scripts): the port prompt is automatically skipped when stdin is not a terminal. Pass `--port=<n>` explicitly, or set the `TJ_VPN_PORT` environment variable before piping.
 
 ### Deploy from your Mac (VM needs nothing)
 
@@ -579,14 +595,14 @@ make build-all          # all four platforms
 │  ┌──────────────┐    ┌───────────────────┐  │
 │  │  auth-vpn    │    │  Docker containers│  │
 │  │  server      │    │                   │  │
-│  │  :7777 (TLS) │    │  postgres :5432   │  │
+│  │  :<port>(TLS) │    │  postgres :5432   │  │
 │  │  :9100 (HTTP)│    │  mysql    :3306   │  │
 │  │  :2222 (SSH) │    │  redis    :6379   │  │
 │  │  TUN: tun0   │    │  ...              │  │
 │  │  10.8.0.1/24 │    └───────────────────┘  │
 │  └──────────────┘                           │
 └─────────────────────────────────────────────┘
-          │  TLS 1.3 / port 7777
+          │  TLS 1.3 / configurable port (default 7777)
           │
    ┌──────┴──────────────────────────────┐
    │  Client machine                     │
@@ -654,6 +670,26 @@ sudo auth-vpn update
 ```
 
 `auth-vpn update` checks the latest GitHub release, downloads the right binary for your platform, atomically replaces the running binary, and — if the `auth-vpn` systemd service is active — restarts it. No config files are touched.
+
+Re-running the installer on an already-configured server is also safe:
+
+```bash
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
+  | sudo bash -s -- --server
+```
+
+On a re-install, the installer preserves your existing `server.yaml` (keeping `forward_bind_addr`, custom subnet, API key, and all other settings), skips TLS cert regeneration so connected clients are not interrupted, and keeps all existing tokens.
+
+### Changing the tunnel port after installation
+
+```bash
+sudo auth-vpn server change-port
+```
+
+This prompts for a new port, updates `server.yaml` and the systemd service, and restarts auth-vpn. It will remind you to:
+1. Open the new port in your firewall / NSG
+2. Close the old port
+3. Update `DATASOURCE_VPN_HOST` (or any saved profiles) to `<ip>:<new-port>`
 
 Check the current version at any time:
 
