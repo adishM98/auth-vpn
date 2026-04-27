@@ -594,7 +594,7 @@ make build-all          # all four platforms
    │  TUN: utun3 (macOS) / tun0 (Linux)  │
    │  IP: 10.8.0.2                       │
    │                                     │
-   │  Route: 10.8.0.0/24 → TUN          │
+   │  Route: 10.8.0.0/24 → TUN           │
    │  Everything else → normal internet  │
    └─────────────────────────────────────┘
 ```
