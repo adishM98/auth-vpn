@@ -116,7 +116,7 @@ auth-vpn connect staging --background --reconnect  # auto-reconnect on drop
 - **Single port** — close all container ports from the internet; only the tunnel port (default `7777`, configurable at install or via `server change-port`) needs to be open
 - **IP whitelist** — static IPs/CIDRs (VMs, PaaS) can connect without a token; managed from the dashboard
 - **Direct forwards** — expose backend ports to whitelisted IPs with no auth-vpn client required
-- **SSH tunnel** — ToolJet and other tools connect via standard SSH port forwarding; no auth-vpn binary needed on the client side
+- **SSH tunnel** — tools like your app or BI tools connect via standard SSH port forwarding; no auth-vpn binary needed on the client side
 
 ---
 
@@ -249,14 +249,14 @@ Dashboard → IP Whitelist → add name + IP or CIDR
 # API
 curl -X POST http://localhost:9100/api/whitelist \
   -H 'Content-Type: application/json' \
-  -d '{"name":"tooljet-vm","ip":"20.x.x.x"}'
+  -d '{"name":"my-vm","ip":"20.x.x.x"}'
 
 # CIDR range (e.g. Render outbound IPs)
 curl -X POST http://localhost:9100/api/whitelist \
   -d '{"name":"render-us-east","ip":"3.210.0.0/16"}'
 
 # Remove
-curl -X DELETE http://localhost:9100/api/whitelist/tooljet-vm
+curl -X DELETE http://localhost:9100/api/whitelist/my-vm
 ```
 
 | Who | Use |
@@ -282,7 +282,7 @@ with a plain TCP connection — **no auth-vpn binary needed on their side**.
 Dashboard → Direct Forwards → add listen port + target
 ```
 
-Example: whitelist `tooljet-vm` (IP `20.x.x.x`), then add a forward:
+Example: whitelist `my-vm` (IP `20.x.x.x`), then add a forward:
 
 ```
 Listen port  →  Target
@@ -290,7 +290,7 @@ Listen port  →  Target
 3306         →  127.0.0.1:3306   (mysql container)
 ```
 
-ToolJet datasource config (no VPN client installed):
+Your app connects directly — no VPN client needed:
 ```
 Host: 20.98.154.174   ← auth-vpn server public IP
 Port: 5432
@@ -320,10 +320,10 @@ External machine (whitelisted IP)
 
 ---
 
-## SSH tunnel (ToolJet and other tools)
+## SSH tunnel
 
 auth-vpn runs an embedded SSH server on port **2222** that supports standard SSH local port forwarding.
-This lets tools like ToolJet connect to backend services using a plain SSH datasource — **no auth-vpn binary needed**.
+Any tool that supports SSH tunneling can connect to backend services this way — **no auth-vpn binary needed**.
 
 ### Auth methods
 
@@ -338,7 +338,7 @@ This lets tools like ToolJet connect to backend services using a plain SSH datas
 1. Open `http://localhost:9100/ui` → **SSH Keys** tab
 2. Click **Generate Keypair**, enter a name
 3. Copy the private key — it is shown only once, never stored server-side
-4. Paste it into your SSH client or ToolJet datasource
+4. Paste it into your SSH client or tool
 
 ### API
 
@@ -349,7 +349,7 @@ curl http://localhost:9100/api/ssh-keys
 # Generate a new keypair (private key returned once)
 curl -X POST http://localhost:9100/api/ssh-keys/generate \
   -H 'Content-Type: application/json' \
-  -d '{"name":"tooljet-prod"}'
+  -d '{"name":"my-app"}'
 
 # Register an existing public key
 curl -X POST http://localhost:9100/api/ssh-keys \
@@ -357,7 +357,7 @@ curl -X POST http://localhost:9100/api/ssh-keys \
   -d '{"name":"alice","public_key":"ssh-rsa AAAA..."}'
 
 # Remove a key
-curl -X DELETE http://localhost:9100/api/ssh-keys/tooljet-prod
+curl -X DELETE http://localhost:9100/api/ssh-keys/my-app
 ```
 
 ---
@@ -410,14 +410,14 @@ sudo kill -SIGHUP <server-pid>
 
 ---
 
-## ToolJet datasource integration
+## HTTP API
 
-The server exposes a ToolJet-compatible HTTP API at `http://localhost:9100/tooljet/`:
+The server exposes an HTTP API at `http://localhost:9100/api/`:
 
 ```
-GET /tooljet/status          — server health + active client count
-GET /tooljet/clients         — list of connected devices
-GET /tooljet/probe?host=IP&port=N  — verify a host:port is reachable via VPN
+GET /api/status              — server health + active client count
+GET /api/clients             — list of connected devices
+GET /api/probe?host=IP&port=N  — verify a host:port is reachable via VPN
 ```
 
 ### Connected clients API
