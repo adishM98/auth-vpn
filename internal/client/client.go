@@ -23,12 +23,13 @@ const tunBufSize = 65535
 
 // Options controls how the client connects.
 type Options struct {
-	ServerAddr string // "host:port"
-	Token      string
-	Background bool // suppress interactive output, write PID state file
-	Wait       bool // block until tunnel verified before returning
-	Insecure   bool // skip TLS cert verification (dev only)
-	Reconnect  bool // auto-reconnect with exponential backoff on unexpected drop
+	ServerAddr  string // "host:port"
+	Token       string
+	Background  bool     // suppress interactive output, write PID state file
+	Wait        bool     // block until tunnel verified before returning
+	Insecure    bool     // skip TLS cert verification (dev only)
+	Reconnect   bool     // auto-reconnect with exponential backoff on unexpected drop
+	ExtraRoutes []string // additional CIDRs to route via VPN beyond the assigned subnet
 }
 
 // Profile is a saved connection profile (stored in ~/.auth-vpn/profiles.yaml).
@@ -103,6 +104,14 @@ func Connect(opts Options) error {
 	}
 	defer tunnel.DelRoute(resp.Subnet) //nolint:errcheck
 
+	for _, cidr := range opts.ExtraRoutes {
+		if err := tunnel.AddRoute(cidr, ifaceName); err != nil {
+			log.Printf("warning: add extra route %s: %v", cidr, err)
+		} else {
+			defer tunnel.DelRoute(cidr) //nolint:errcheck
+		}
+	}
+
 	log.Printf("tunnel up — route %s via %s", resp.Subnet, ifaceName)
 
 	if opts.Background {
@@ -122,7 +131,11 @@ func Connect(opts Options) error {
 		fmt.Printf("\n✓ Connected to auth-vpn\n")
 		fmt.Printf("  Tunnel IP : %s\n", resp.ClientIP)
 		fmt.Printf("  Server IP : %s\n", resp.ServerIP)
-		fmt.Printf("  Subnet    : %s\n\n", resp.Subnet)
+		fmt.Printf("  Subnet    : %s\n", resp.Subnet)
+		for _, cidr := range opts.ExtraRoutes {
+			fmt.Printf("  Route     : %s → VPN\n", cidr)
+		}
+		fmt.Println()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

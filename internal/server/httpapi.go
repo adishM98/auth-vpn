@@ -48,6 +48,16 @@ func (s *Server) startHTTPAPI() {
 		srv.Close()
 	}()
 
+	// Serve over TLS when the cert/key are available (same files as the tunnel).
+	// This lets GitHub Actions generate ephemeral tokens via
+	// --api-url https://<server>:<port> without SSH port-forwarding.
+	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
+		log.Printf("HTTP API listening on https://%s (metrics, /ui, /api)", s.cfg.MetricsAddr)
+		if err := srv.ListenAndServeTLS(s.cfg.TLSCert, s.cfg.TLSKey); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP API error: %v", err)
+		}
+		return
+	}
 	log.Printf("HTTP API listening on http://%s (metrics, /ui, /api)", s.cfg.MetricsAddr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Printf("HTTP API error: %v", err)

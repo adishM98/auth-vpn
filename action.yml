@@ -1,0 +1,147 @@
+name: 'Connect auth-vpn'
+description: >
+  Connects this GitHub Actions runner to your self-hosted auth-vpn server.
+  Automatically creates a unique ephemeral token per job and revokes it when
+  the job ends — no token management required and no conflicts between
+  parallel matrix jobs. In TUN mode (default) all traffic to the specified
+  routes is tunnelled at the OS level; Docker containers on the runner benefit
+  automatically with no changes to docker-compose or container config.
+
+inputs:
+  server:
+    description: 'VPN server address in host:port format (e.g. 203.0.113.10:7777)'
+    required: true
+
+  api-key:
+    description: >
+      Server API key (stored as a GitHub secret, e.g. VPN_API_KEY).
+      The action uses this to create a unique ephemeral token for every job
+      run and delete it automatically on disconnect — no conflicts between
+      parallel matrix jobs, no leftover tokens.
+    required: true
+
+  api-url:
+    description: >
+      Full URL of the server API, e.g. http://your-vpn-host:9100 or
+      https://your-vpn-host:9100. Defaults to http://<host>:9100.
+      Use https:// if you need encrypted API traffic (requires the server
+      to have TLS certs configured).
+    required: false
+
+  routes:
+    description: >
+      Extra CIDR blocks to route through the VPN, comma-separated.
+      Example: "20.29.40.0/24,10.20.0.0/16"
+      Not needed when your data sources run on the same VM as auth-vpn —
+      use 10.8.0.1 as host in that case (the server TUN IP is always routed).
+    required: false
+
+  mode:
+    description: >
+      Connection mode.
+        tun   — (default) full OS-level routing, requires sudo.
+                Works on standard GitHub-hosted ubuntu runners.
+        proxy — explicit TCP port-forwards only, no root needed.
+    default: 'tun'
+
+  forwards:
+    description: >
+      Proxy mode only. Space-separated port-forward rules:
+      "localPort:remoteHost:remotePort", e.g. "5432:10.8.0.1:5432"
+    required: false
+
+  version:
+    description: 'auth-vpn release version (e.g. v2.0.2). Defaults to latest.'
+    default: 'latest'
+
+runs:
+  using: 'composite'
+  steps:
+    # ── Install ────────────────────────────────────────────────────────────────
+    - name: Install auth-vpn
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -sfL \
+            https://api.github.com/repos/adishM98/auth-vpn/releases/latest \
+            | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/')
+        fi
+
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64)  GOARCH="amd64" ;;
+          aarch64) GOARCH="arm64" ;;
+          *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
+
+        BIN_URL="https://github.com/adishM98/auth-vpn/releases/download/${VERSION}/auth-vpn-linux-${GOARCH}"
+        echo "Downloading auth-vpn ${VERSION} (${GOARCH})"
+        curl -sfL "$BIN_URL" -o /usr/local/bin/auth-vpn
+        chmod +x /usr/local/bin/auth-vpn
+        auth-vpn version
+
+    # ── TUN mode ──────────────────────────────────────────────────────────────
+    - name: Connect (TUN mode)
+      if: inputs.mode != 'proxy'
+      shell: bash
+      env:
+        AUTH_VPN_API_KEY: ${{ inputs.api-key }}
+      run: |
+        # Derive API URL from server host if not explicitly provided.
+        SERVER_HOST=$(echo "${{ inputs.server }}" | cut -d: -f1)
+        API_URL="${{ inputs.api-url }}"
+        [ -z "$API_URL" ] && API_URL="http://${SERVER_HOST}:9100"
+
+        ARGS="--background --reconnect --insecure --github-action --api-url $API_URL"
+
+        # Add each comma-separated CIDR as a --route flag.
+        if [ -n "${{ inputs.routes }}" ]; then
+          IFS=',' read -ra CIDRS <<< "${{ inputs.routes }}"
+          for cidr in "${CIDRS[@]}"; do
+            cidr=$(echo "$cidr" | tr -d ' ')
+            [ -n "$cidr" ] && ARGS="$ARGS --route $cidr"
+          done
+        fi
+
+        sudo -E auth-vpn connect "${{ inputs.server }}" $ARGS
+
+        # Poll until tunnel.json reports connected (up to 30 s).
+        for i in $(seq 1 30); do
+          auth-vpn status 2>/dev/null | grep -q "status: connected" && break
+          sleep 1
+        done
+
+        auth-vpn status
+        echo "::notice::auth-vpn tunnel is up (ephemeral token auto-generated for this job)"
+
+    # ── Proxy mode ────────────────────────────────────────────────────────────
+    - name: Connect (Proxy mode)
+      if: inputs.mode == 'proxy'
+      shell: bash
+      env:
+        AUTH_VPN_API_KEY: ${{ inputs.api-key }}
+      run: |
+        if [ -z "${{ inputs.forwards }}" ]; then
+          echo "::error::inputs.forwards is required in proxy mode"
+          exit 1
+        fi
+
+        SERVER_HOST=$(echo "${{ inputs.server }}" | cut -d: -f1)
+        API_URL="${{ inputs.api-url }}"
+        [ -z "$API_URL" ] && API_URL="http://${SERVER_HOST}:9100"
+
+        ARGS="--background --reconnect --insecure --github-action --api-url $API_URL"
+        for f in ${{ inputs.forwards }}; do
+          ARGS="$ARGS --forward $f"
+        done
+
+        auth-vpn connect "${{ inputs.server }}" $ARGS
+
+        for i in $(seq 1 30); do
+          auth-vpn status 2>/dev/null | grep -q "status: connected" && break
+          sleep 1
+        done
+
+        auth-vpn status
+        echo "::notice::auth-vpn proxy tunnel is up"

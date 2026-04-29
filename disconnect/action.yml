@@ -1,0 +1,12 @@
+name: 'Disconnect auth-vpn'
+description: 'Gracefully disconnects the auth-vpn tunnel started by adishM98/auth-vpn@v2. Call this in an if: always() step.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Disconnect
+      shell: bash
+      run: |
+        if command -v auth-vpn &>/dev/null; then
+          auth-vpn disconnect && echo "auth-vpn disconnected" || echo "auth-vpn: no active tunnel"
+        fi

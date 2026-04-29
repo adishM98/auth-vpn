@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"bufio"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -406,7 +407,7 @@ func connectCmd() *cobra.Command {
 	var token, apiKey, apiURL string
 	var apiPort int
 	var background, wait, insecure, reconnect, githubAction bool
-	var forwardRules []string
+	var forwardRules, extraRoutes []string
 
 	cmd := &cobra.Command{
 		Use:   "connect <host:port|profile-name>",
@@ -415,11 +416,12 @@ func connectCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := args[0]
 			opts := client.Options{
-				Token:      token,
-				Background: background,
-				Wait:       wait,
-				Insecure:   insecure,
-				Reconnect:  reconnect,
+				Token:       token,
+				Background:  background,
+				Wait:        wait,
+				Insecure:    insecure,
+				Reconnect:   reconnect,
+				ExtraRoutes: extraRoutes,
 			}
 
 			// If no token, check for a saved profile first, then try without token
@@ -464,16 +466,16 @@ func connectCmd() *cobra.Command {
 				if resolvedAPIURL == "" {
 					resolvedAPIURL = "http://localhost:" + strconv.Itoa(apiPort)
 				}
-				// Refuse plaintext HTTP to non-loopback hosts to protect the API key.
-				if err := checkAPIURLSafety(resolvedAPIURL); err != nil {
+				// Refuse plaintext HTTP to non-loopback hosts unless --insecure is set.
+				if err := checkAPIURLSafety(resolvedAPIURL, insecure); err != nil {
 					return err
 				}
-				tok, name, err := generateEphemeralToken(resolvedAPIURL, apiKey, githubAction)
+				tok, name, err := generateEphemeralToken(resolvedAPIURL, apiKey, githubAction, insecure)
 				if err != nil {
 					return fmt.Errorf("generate ephemeral token: %w", err)
 				}
 				opts.Token = tok
-				defer revokeEphemeralToken(resolvedAPIURL, apiKey, name)
+				defer revokeEphemeralToken(resolvedAPIURL, apiKey, name, insecure)
 			}
 
 			if wait {
@@ -507,12 +509,13 @@ func connectCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification")
 	cmd.Flags().BoolVar(&reconnect, "reconnect", false, "Auto-reconnect with exponential backoff on unexpected drop")
 	cmd.Flags().StringArrayVar(&forwardRules, "forward", nil, "Forward local port to remote (localPort:remoteHost:remotePort), e.g. 5432:10.8.0.1:5432")
+	cmd.Flags().StringArrayVar(&extraRoutes, "route", nil, "Extra CIDR to route through VPN (e.g. 20.29.40.0/24). Repeatable. Docker containers on the runner benefit automatically.")
 
 	// Hidden flags — for CI/CD use; not shown in --help.
 	cmd.Flags().BoolVar(&githubAction, "github-action", false, "Ephemeral token mode for GitHub Actions. Reads AUTH_VPN_API_KEY env var; generates a unique token per job and revokes it on disconnect.")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "Generate a unique ephemeral token via the server API (for CI/CD parallel jobs). Revoked automatically on disconnect.")
 	cmd.Flags().IntVar(&apiPort, "api-port", 9100, "HTTP API port (default 9100). Used with --api-key/--github-action when --api-url is not set.")
-	cmd.Flags().StringVar(&apiURL, "api-url", "", "Full base URL of the server API, e.g. http://localhost:9100. Overrides --api-port. Defaults to http://localhost:<api-port>.")
+	cmd.Flags().StringVar(&apiURL, "api-url", "", "Full base URL of the server API, e.g. https://<host>:9100. Overrides --api-port.")
 	cmd.Flags().MarkHidden("github-action") //nolint:errcheck
 	cmd.Flags().MarkHidden("api-key")       //nolint:errcheck
 	cmd.Flags().MarkHidden("api-port")      //nolint:errcheck
@@ -522,14 +525,17 @@ func connectCmd() *cobra.Command {
 }
 
 // checkAPIURLSafety returns an error if the URL would transmit the API key
-// over plaintext HTTP to a non-loopback address.
-func checkAPIURLSafety(rawURL string) error {
+// over plaintext HTTP to a non-loopback address, unless insecure is true.
+func checkAPIURLSafety(rawURL string, insecure bool) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid --api-url %q: %w", rawURL, err)
 	}
 	if strings.ToLower(u.Scheme) == "https" {
 		return nil // HTTPS is always safe
+	}
+	if insecure {
+		return nil // user has explicitly opted in to insecure mode
 	}
 	host := u.Hostname()
 	ip := net.ParseIP(host)
@@ -538,9 +544,10 @@ func checkAPIURLSafety(rawURL string) error {
 	if !loopback {
 		return fmt.Errorf(
 			"refusing to send API key over plaintext HTTP to %q\n"+
-				"Use an SSH tunnel to forward the API port locally:\n"+
-				"  ssh -L 9100:localhost:9100 user@<vm> -N &\n"+
-				"Then pass --api-url http://localhost:9100 (or omit it, that is the default)",
+				"Options:\n"+
+				"  1. Pass --insecure to allow plaintext HTTP (only on trusted networks)\n"+
+				"  2. Use an SSH tunnel: ssh -L 9100:localhost:9100 user@<vm> -N &\n"+
+				"  3. Use HTTPS: --api-url https://<host>:9100",
 			host,
 		)
 	}
@@ -550,7 +557,7 @@ func checkAPIURLSafety(rawURL string) error {
 // generateEphemeralToken calls POST /api/tokens on the server to create a
 // short-lived token for this specific connection. Used by --api-key and
 // --github-action so each parallel CI job gets its own independent token.
-func generateEphemeralToken(apiURL, apiKey string, useGithubEnv bool) (tokenValue, tokenName string, err error) {
+func generateEphemeralToken(apiURL, apiKey string, useGithubEnv, insecure bool) (tokenValue, tokenName string, err error) {
 	var name string
 	if useGithubEnv {
 		// Build a unique name from GitHub's own env vars so the token is
@@ -587,7 +594,7 @@ func generateEphemeralToken(apiURL, apiKey string, useGithubEnv bool) (tokenValu
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	c := &http.Client{Timeout: 10 * time.Second}
+	c := apiHTTPClient(insecure)
 	resp, err := c.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("reach server API: %w", err)
@@ -612,9 +619,24 @@ func generateEphemeralToken(apiURL, apiKey string, useGithubEnv bool) (tokenValu
 	return result.Token, result.Name, nil
 }
 
+// apiHTTPClient returns an HTTP client for token API calls.
+// When insecure is true it skips TLS verification — needed for self-signed certs
+// on the auth-vpn API (which reuses the same cert as the tunnel).
+func apiHTTPClient(insecure bool) *http.Client {
+	if !insecure {
+		return &http.Client{Timeout: 10 * time.Second}
+	}
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		},
+	}
+}
+
 // revokeEphemeralToken deletes the token created by generateEphemeralToken.
 // Called via defer so it runs when the tunnel drops, even on error paths.
-func revokeEphemeralToken(apiURL, apiKey, name string) {
+func revokeEphemeralToken(apiURL, apiKey, name string, insecure bool) {
 	// url.PathEscape handles job IDs with dots, spaces, or slashes that would
 	// otherwise escape into a different URL path segment.
 	req, err := http.NewRequest(http.MethodDelete, apiURL+"/api/tokens/"+url.PathEscape(name), nil)
@@ -622,8 +644,7 @@ func revokeEphemeralToken(apiURL, apiKey, name string) {
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	c := &http.Client{Timeout: 10 * time.Second}
-	if resp, err := c.Do(req); err == nil {
+	if resp, err := apiHTTPClient(insecure).Do(req); err == nil {
 		resp.Body.Close()
 	}
 }
