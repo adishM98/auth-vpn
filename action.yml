@@ -1,11 +1,6 @@
 name: 'Connect auth-vpn'
 description: >
   Connects this GitHub Actions runner to your self-hosted auth-vpn server.
-  Automatically creates a unique ephemeral token per job and revokes it when
-  the job ends — no token management required and no conflicts between
-  parallel matrix jobs. In TUN mode (default) all traffic to the specified
-  routes is tunnelled at the OS level; Docker containers on the runner benefit
-  automatically with no changes to docker-compose or container config.
 
 inputs:
   server:
