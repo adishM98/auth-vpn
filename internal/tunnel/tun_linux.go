@@ -40,7 +40,7 @@ func NewTUN(ip string) (*Iface, error) {
 // AddRoute adds a host route through the TUN interface.
 // subnet e.g. "10.0.0.0/24"
 func AddRoute(subnet, ifaceName string) error {
-	out, err := exec.Command("ip", "route", "add", subnet, "dev", ifaceName).CombinedOutput()
+	out, err := exec.Command("ip", "route", "replace", subnet, "dev", ifaceName).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("add route (%s): %s", err, out)
 	}
