@@ -63,6 +63,11 @@ runs:
             | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/')
         fi
 
+        if [ -z "$VERSION" ]; then
+          echo "::error::Could not resolve auth-vpn version (GitHub API rate limit?)"
+          exit 1
+        fi
+
         ARCH=$(uname -m)
         case "$ARCH" in
           x86_64)  GOARCH="amd64" ;;
@@ -71,9 +76,24 @@ runs:
         esac
 
         BIN_URL="https://github.com/adishM98/auth-vpn/releases/download/${VERSION}/auth-vpn-linux-${GOARCH}"
-        echo "Downloading auth-vpn ${VERSION} (${GOARCH})"
-        curl -sfL "$BIN_URL" -o /usr/local/bin/auth-vpn
-        chmod +x /usr/local/bin/auth-vpn
+        echo "Downloading auth-vpn ${VERSION} (${GOARCH}) from ${BIN_URL}"
+
+        TMP_BIN=$(mktemp)
+        for attempt in 1 2 3; do
+          if curl -fL --retry 2 --retry-delay 3 "$BIN_URL" -o "$TMP_BIN"; then
+            break
+          fi
+          echo "Download attempt ${attempt} failed, retrying..."
+          sleep 5
+        done
+
+        if [ ! -s "$TMP_BIN" ]; then
+          echo "::error::Failed to download auth-vpn binary from ${BIN_URL}"
+          exit 1
+        fi
+
+        sudo install -m 755 "$TMP_BIN" /usr/local/bin/auth-vpn
+        rm -f "$TMP_BIN"
         auth-vpn version
 
     # ── TUN mode ──────────────────────────────────────────────────────────────
