@@ -123,11 +123,11 @@ runs:
 
         # Poll until tunnel.json reports connected (up to 30 s).
         for i in $(seq 1 30); do
-          auth-vpn status 2>/dev/null | grep -q "status: connected" && break
+          sudo auth-vpn status 2>/dev/null | grep -q "status: connected" && break
           sleep 1
         done
 
-        auth-vpn status
+        sudo auth-vpn status
         echo "::notice::auth-vpn tunnel is up (ephemeral token auto-generated for this job)"
 
     # ── Proxy mode ────────────────────────────────────────────────────────────
