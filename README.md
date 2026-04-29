@@ -15,7 +15,8 @@ VM (Docker containers)   ←   auth-vpn server   (configurable port, TLS)
           │
           ├── Dev laptop        (auth-vpn client)
           ├── QA laptop         (auth-vpn client)
-          └── Test VM           (auth-vpn client)
+          ├── Test VM           (auth-vpn client)
+          └── GitHub Actions    (auth-vpn action — ephemeral token per job)
 ```
 
 The server creates a TUN interface at `10.8.0.1` and assigns each connecting client an IP from `10.8.0.2–254`. All IP traffic to the `10.8.0.0/24` subnet is routed through the tunnel at the OS level — no per-app configuration needed.
@@ -524,43 +525,92 @@ services:
 
 ---
 
-## Use in CI / CD
+## Use in GitHub Actions
 
-`--github-action` is the recommended way to connect from GitHub Actions. It reads `AUTH_VPN_API_KEY` from the environment, mints a unique ephemeral token per job (named after the run ID + job name so it's auditable), connects, and revokes the token automatically when the job finishes. Parallel jobs each get their own token — no collisions.
+auth-vpn ships a ready-made GitHub Action. Add two steps to any job — one to connect, one to disconnect — and every service on the server VM becomes reachable at `10.8.0.1`.
 
-`VPN_API_KEY` is the `api_key` value printed by the server installer (also visible in `/etc/auth-vpn/server.yaml`). Set it once as a GitHub repository secret.
+Tokens are fully automatic: a unique ephemeral token is created for each job run and revoked when the job ends. No manual token management, no conflicts between parallel matrix jobs.
 
-The admin API runs on port 9100 (HTTP). To protect the API key, auth-vpn never sends it over plaintext HTTP to a non-local address — it always calls `http://localhost:9100` by default. Forward port 9100 over your existing SSH access before connecting:
+### 1 — Add secrets
+
+In your repository go to **Settings → Secrets and variables → Actions** and add:
+
+| Secret | Value |
+|--------|-------|
+| `VPN_SERVER` | `<vm-public-ip>:7777` |
+| `VPN_API_KEY` | The `api_key` from `/etc/auth-vpn/server.yaml` on the server VM |
+
+### 2 — Add the steps
 
 ```yaml
-# GitHub Actions example
-- name: Install auth-vpn
-  run: curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Connect to VPN
+        uses: adishM98/auth-vpn@v2
+        with:
+          server: ${{ secrets.VPN_SERVER }}
+          api-key: ${{ secrets.VPN_API_KEY }}
 
-- name: Forward API port (keeps API key off the public internet)
-  run: ssh -f -N -L 9100:localhost:9100 -i ~/.ssh/vm_key azureuser@${{ secrets.VM_IP }}
+      # Your steps here — use 10.8.0.1 as the host for any service on the VM
+      # e.g. DB_HOST=10.8.0.1, REDIS_HOST=10.8.0.1
 
-- name: Connect to VM
-  run: |
-    auth-vpn connect ${{ secrets.VPN_HOST }} --github-action --forward 5432:localhost:5432 &
-    # Wait until the tunnel is up before proceeding
-    for i in $(seq 1 15); do auth-vpn status && break || sleep 2; done
-  env:
-    AUTH_VPN_API_KEY: ${{ secrets.VPN_API_KEY }}
-
-- name: Run tests
-  run: make test
-
-- name: Disconnect (always runs, triggers token revocation)
-  if: always()
-  run: auth-vpn disconnect
+      - name: Disconnect VPN
+        if: always()
+        uses: adishM98/auth-vpn/disconnect@v2
 ```
 
-For non-GitHub CI environments (GitLab, Bitbucket, etc.) or when you want a named long-lived token:
+### Parallel matrix jobs
+
+The same two secrets work for any number of parallel jobs simultaneously — each job gets its own token automatically.
 
 ```yaml
-- name: Connect to VM
-  run: auth-vpn connect ${{ secrets.VPN_HOST }} --token ${{ secrets.VPN_TOKEN }} --forward 5432:localhost:5432 --background --wait
+strategy:
+  matrix:
+    edition: [ee, ce, community]
+
+steps:
+  - name: Connect to VPN
+    uses: adishM98/auth-vpn@v2
+    with:
+      server: ${{ secrets.VPN_SERVER }}
+      api-key: ${{ secrets.VPN_API_KEY }}   # one secret, no per-job config
+```
+
+### Docker containers in the workflow
+
+If your job runs `docker-compose up`, those containers can also reach `10.8.0.1` with no changes to your `docker-compose.yaml`. Docker routes container traffic through the host network stack, so the VPN tunnel applies to container traffic automatically.
+
+### Action inputs
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `server` | yes | — | VPN server address, e.g. `203.0.113.10:7777` |
+| `api-key` | yes | — | Server API key for ephemeral token generation |
+| `api-url` | no | `http://<host>:9100` | Override the API endpoint (use `https://` if the server has TLS certs) |
+| `routes` | no | — | Extra CIDRs to route via VPN, comma-separated (e.g. `10.20.0.0/16`) |
+| `mode` | no | `tun` | `tun` (full OS routing, needs sudo) or `proxy` (explicit port-forwards, no root) |
+| `forwards` | no | — | Proxy mode only: `"5432:10.8.0.1:5432 6379:10.8.0.1:6379"` |
+| `version` | no | `latest` | Binary version to download, e.g. `v2.0.2` |
+
+> See [docs/github-actions.md](docs/github-actions.md) for a detailed guide, full Cypress example, and troubleshooting steps.
+
+### Non-GitHub CI (GitLab, Bitbucket, etc.)
+
+Use the binary directly with a static token stored as a CI secret:
+
+```bash
+# Install
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
+
+# Connect
+sudo auth-vpn connect $VPN_SERVER --token $VPN_TOKEN --background --reconnect
+
+# Run tests ...
+
+# Disconnect (revokes the session)
+auth-vpn disconnect
 ```
 
 ---
@@ -604,15 +654,15 @@ make build-all          # all four platforms
 └─────────────────────────────────────────────┘
           │  TLS 1.3 / configurable port (default 7777)
           │
-   ┌──────┴──────────────────────────────┐
-   │  Client machine                     │
-   │                                     │
-   │  TUN: utun3 (macOS) / tun0 (Linux)  │
-   │  IP: 10.8.0.2                       │
-   │                                     │
-   │  Route: 10.8.0.0/24 → TUN           │
-   │  Everything else → normal internet  │
-   └─────────────────────────────────────┘
+   ┌──────┴──────────────────────────────┐  ┌──────────────────────────────────────┐
+   │  Dev / QA machine                   │  │  GitHub Actions runner               │
+   │                                     │  │                                      │
+   │  TUN: utun3 (macOS) / tun0 (Linux)  │  │  TUN: tun0 (Linux)                   │
+   │  IP: 10.8.0.2                       │  │  IP: 10.8.0.x (assigned per job)     │
+   │                                     │  │                                      │
+   │  Route: 10.8.0.0/24 → TUN           │  │  Ephemeral token auto-created        │
+   │  Everything else → normal internet  │  │  and revoked per job run             │
+   └─────────────────────────────────────┘  └──────────────────────────────────────┘
 ```
 
 **Packet flow:**
