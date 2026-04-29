@@ -119,7 +119,7 @@ runs:
           done
         fi
 
-        sudo -E auth-vpn connect "${{ inputs.server }}" $ARGS
+        sudo -E auth-vpn connect "${{ inputs.server }}" $ARGS &
 
         # Poll until tunnel.json reports connected (up to 30 s).
         for i in $(seq 1 30); do
@@ -151,7 +151,7 @@ runs:
           ARGS="$ARGS --forward $f"
         done
 
-        auth-vpn connect "${{ inputs.server }}" $ARGS
+        auth-vpn connect "${{ inputs.server }}" $ARGS &
 
         for i in $(seq 1 30); do
           auth-vpn status 2>/dev/null | grep -q "status: connected" && break
