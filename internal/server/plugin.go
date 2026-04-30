@@ -13,7 +13,7 @@ var (
 	localhostNet = func() *net.IPNet { _, n, _ := net.ParseCIDR("127.0.0.0/8"); return n }()
 )
 
-// isAllowedProbeHost restricts /tooljet/probe to VPN-internal IPs and localhost only,
+// isAllowedProbeHost restricts /plugin/probe to VPN-internal IPs and localhost only,
 // preventing SSRF to cloud metadata endpoints or arbitrary internet hosts.
 func isAllowedProbeHost(host string) bool {
 	ip := net.ParseIP(host)
@@ -23,18 +23,18 @@ func isAllowedProbeHost(host string) bool {
 	return vpnSubnet.Contains(ip) || localhostNet.Contains(ip)
 }
 
-// handleToolJet serves the /tooljet/* routes used by the ToolJet datasource plugin.
+// handlePlugin serves the /plugin/* routes used by app integrations.
 // Routes:
 //
-//	GET  /tooljet/status          — server health + active client count
-//	GET  /tooljet/clients         — list of connected clients (name, ip, connected_at)
-//	GET  /tooljet/probe?host=IP&port=N — TCP dial to verify a host:port is reachable via VPN
-func (s *Server) handleToolJet(w http.ResponseWriter, r *http.Request) {
+//	GET  /plugin/status          — server health + active client count
+//	GET  /plugin/clients         — list of connected clients (name, ip, connected_at)
+//	GET  /plugin/probe?host=IP&port=N — TCP dial to verify a host:port is reachable via VPN
+func (s *Server) handlePlugin(w http.ResponseWriter, r *http.Request) {
 	if !s.checkAPIKey(w, r) {
 		return
 	}
 
-	path := strings.TrimPrefix(r.URL.Path, "/tooljet")
+	path := strings.TrimPrefix(r.URL.Path, "/plugin")
 
 	switch {
 	case path == "/status" || path == "/status/":

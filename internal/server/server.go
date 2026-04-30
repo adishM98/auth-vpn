@@ -52,7 +52,7 @@ type Config struct {
 	ServerIP    string // e.g. "10.0.0.1"
 	MetricsAddr     string // e.g. "localhost:9100" — empty to disable
 	ACLPath         string // path to acl.yaml — empty to disable
-	APIKey          string // bearer key for /tooljet/* — empty to disable
+	APIKey          string // bearer key for /plugin/* — empty to disable
 	ForwardBindAddr string // IP to bind direct-forward listeners to; empty = 0.0.0.0 (all interfaces)
 	SSHAddr         string // address for embedded SSH server, e.g. ":2222"; empty = disabled
 }

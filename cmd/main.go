@@ -241,7 +241,7 @@ func serverStartCmd() *cobra.Command {
 	cmd.Flags().StringVar(&serverIP, "server-ip", "", "Server TUN IP (default 10.0.0.1)")
 	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", "", "Metrics/API listen address (default localhost:9100)")
 	cmd.Flags().StringVar(&aclPath, "acl", "", "Path to acl.yaml (empty = allow all)")
-	cmd.Flags().StringVar(&apiKey, "api-key", "", "Bearer key for /api/* and /tooljet/* (empty = no auth)")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "Bearer key for /api/* and /plugin/* (empty = no auth)")
 	cmd.Flags().StringVar(&forwardBind, "forward-bind", "", "IP to bind direct-forward listeners (e.g. 172.190.141.231); empty = all interfaces")
 	cmd.Flags().StringVar(&sshAddr, "ssh-addr", "", "Embedded SSH server address (e.g. :2222); empty = disabled")
 	return cmd

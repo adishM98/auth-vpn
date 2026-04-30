@@ -16,7 +16,7 @@ VM (any containers)  ← auth-vpn server (one port open: 7777)
      │
      ├── Dev laptop       (auth-vpn client)
      ├── QA laptop        (auth-vpn client)
-     └── ToolJet VM       (auth-vpn client)
+     └── client VM       (auth-vpn client)
 ```
 
 Every container running on the VM is reachable through the tunnel:
@@ -207,7 +207,7 @@ status: connected
 
 ---
 
-## Part 3 — Other VMs (ToolJet VM, test VMs, etc.)
+## Part 3 — Other VMs (client VMs, test VMs, etc.)
 
 ```bash
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
@@ -304,12 +304,12 @@ The external machine uses a plain TCP connection — **no auth-vpn binary needed
 - Enter listen port (e.g. `5432`) and target (e.g. `127.0.0.1:5432`) → click Add
 - The listener starts immediately — no restart needed
 
-**Example: ToolJet VM accessing postgres without installing auth-vpn:**
+**Example: accessing a service without installing auth-vpn:**
 
-1. Whitelist the ToolJet VM's public IP (Part 6 above)
+1. Whitelist the client VM's public IP (Part 6 above)
 2. Add a direct forward: `5432 → 127.0.0.1:5432`
 3. Open port 5432 in your firewall/NSG for that IP only
-4. Configure the ToolJet datasource:
+4. Configure your app datasource:
    ```
    Host: 20.98.154.174   ← auth-vpn server public IP
    Port: 5432
@@ -317,7 +317,7 @@ The external machine uses a plain TCP connection — **no auth-vpn binary needed
 
 Connection flow:
 ```
-ToolJet VM → TCP :5432 → auth-vpn server
+Client VM → TCP :5432 → auth-vpn server
   → IP whitelisted? YES → proxy to 127.0.0.1:5432 → postgres
 ```
 
@@ -325,9 +325,9 @@ ToolJet VM → TCP :5432 → auth-vpn server
 
 ---
 
-## Part 8 — SSH tunnel (ToolJet and other tools, no auth-vpn binary needed)
+## Part 8 — SSH tunnel (any SSH client, no auth-vpn binary needed)
 
-auth-vpn runs an embedded SSH server on port **2222**. Tools like ToolJet can connect via standard SSH local port forwarding — no auth-vpn binary or VPN client required.
+auth-vpn runs an embedded SSH server on port **2222**. Any tool that supports SSH can connect via standard SSH local port forwarding — no auth-vpn binary or VPN client required.
 
 ### Auth methods
 
@@ -345,14 +345,14 @@ curl http://localhost:9100/api/ssh-keys
 
 # Generate a new keypair
 curl -X POST http://localhost:9100/api/ssh-keys/generate \
-  -d '{"name":"tooljet-prod"}'
+  -d '{"name":"my-app-prod"}'
 
 # Register an existing public key
 curl -X POST http://localhost:9100/api/ssh-keys \
   -d '{"name":"alice","public_key":"ssh-rsa AAAA..."}'
 
 # Remove a key
-curl -X DELETE http://localhost:9100/api/ssh-keys/tooljet-prod
+curl -X DELETE http://localhost:9100/api/ssh-keys/my-app-prod
 ```
 
 ---

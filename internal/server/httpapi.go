@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// startHTTPAPI starts the HTTP listener for metrics, health, API, Web UI, and ToolJet routes.
+// startHTTPAPI starts the HTTP listener for metrics, health, API, Web UI, and plugin routes.
 func (s *Server) startHTTPAPI() {
 	mux := http.NewServeMux()
 
@@ -26,7 +26,7 @@ func (s *Server) startHTTPAPI() {
 	mux.HandleFunc("/api/ssh-keys", s.withAuth(s.handleAPISSHKeys))
 	mux.HandleFunc("/api/ssh-keys/generate", s.withAuth(s.handleAPISSHKeysGenerate))
 	mux.HandleFunc("/api/ssh-keys/", s.withAuth(s.handleAPISSHKeysDelete))
-	mux.HandleFunc("/tooljet/", s.handleToolJet)
+	mux.HandleFunc("/plugin/", s.handlePlugin)
 	mux.HandleFunc("/ui", s.withAuth(s.handleWebUI))
 	mux.HandleFunc("/", s.withAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {

@@ -19,7 +19,7 @@ import (
 const sshHostKeyFile = "/etc/auth-vpn/ssh_host_key"
 
 // startSSHServer runs an embedded SSH server for token-authenticated port forwarding.
-// ToolJet (or any SSH client) connects with any username + auth-vpn token as password,
+// Any SSH client connects with any username + auth-vpn token as password,
 // then uses standard SSH local port forwarding to reach services on this host.
 func (s *Server) startSSHServer() {
 	if s.cfg.SSHAddr == "" {
