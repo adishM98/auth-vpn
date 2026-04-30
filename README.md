@@ -784,9 +784,3 @@ sudo systemctl daemon-reload
 # Remove the Unix control socket (if present)
 sudo rm -f /var/run/auth-vpn.sock
 ```
-
----
-
-## License
-
-MIT
