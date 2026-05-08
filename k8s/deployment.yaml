@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-vpn
+  namespace: swiggy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-vpn
+  template:
+    metadata:
+      labels:
+        app: auth-vpn
+    spec:
+      containers:
+        - name: auth-vpn
+          # Replace with your registry, e.g. myregistry.azurecr.io/auth-vpn:latest
+          image: auth-vpn:latest
+          imagePullPolicy: Always
+          ports:
+            - name: vpn
+              containerPort: 7777
+            - name: dashboard
+              containerPort: 9100
+            - name: ssh
+              containerPort: 2222
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN   # TUN device, ip commands, iptables
+                - NET_RAW     # iptables raw table
+            allowPrivilegeEscalation: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/auth-vpn
+            - name: tun-device
+              mountPath: /dev/net/tun
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: auth-vpn-data
+        - name: tun-device
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice

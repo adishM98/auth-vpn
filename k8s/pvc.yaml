@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: auth-vpn-data
+  namespace: swiggy
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # Uses the cluster default storage class (AKS: managed-csi).
+  # Uncomment and set if you need a specific class:
+  # storageClassName: managed-premium
