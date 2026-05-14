@@ -51,7 +51,7 @@ curl -X DELETE http://localhost:9100/api/whitelist/my-vm
 
 Whitelisted IPs can also connect via the auth-vpn client without `--token`:
 ```bash
-auth-vpn connect 20.98.154.174:7777   # no --token needed
+auth-vpn connect <server-ip>:7777   # no --token needed
 ```
 
 ---
@@ -74,7 +74,7 @@ Listen port  →  Target
 
 Your app connects directly:
 ```
-Host: 20.98.154.174   ← auth-vpn server public IP
+Host: <server-ip>   ← auth-vpn server public IP
 Port: 5432
 ```
 

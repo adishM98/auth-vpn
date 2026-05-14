@@ -43,7 +43,7 @@ At the end you'll see:
 ```
   ─────────────────────────────────────────────
   Connect with:
-    auth-vpn connect 20.98.154.174:7777 --token abc123xyz
+    auth-vpn connect <server-ip>:7777 --token abc123xyz
 
   Web dashboard:  http://localhost:9100/ui
   API key:        <generated-key>
@@ -62,10 +62,10 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 Then connect:
 
 ```bash
-auth-vpn connect 20.98.154.174:7777 --token abc123xyz
+auth-vpn connect <server-ip>:7777 --token abc123xyz
 
 # Background + auto-reconnect
-auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
+auth-vpn connect <server-ip>:7777 --token abc123xyz --background --reconnect
 
 auth-vpn status       # check tunnel
 auth-vpn disconnect   # disconnect
@@ -75,7 +75,7 @@ Save a profile so you never type the token again:
 
 ```bash
 auth-vpn profile save staging \
-  --host 20.98.154.174:7777 \
+  --host <server-ip>:7777 \
   --token abc123xyz
 
 auth-vpn connect staging --background --reconnect

@@ -35,7 +35,7 @@ auth-vpn server tokens revoke --name "dev-alice"
 
 ```bash
 # Connect interactively (Ctrl+C to disconnect)
-auth-vpn connect 20.98.154.174:7777 --token <token>
+auth-vpn connect <server-ip>:7777 --token <token>
 
 # Connect using a saved profile
 auth-vpn connect staging
@@ -69,7 +69,7 @@ Use `--forward` instead of a TUN tunnel. auth-vpn binds a local port and forward
 
 ```bash
 # Forward local 5432 → postgres on the VM, local 6379 → redis on the VM
-auth-vpn connect 20.98.154.174:7777 --token <token> \
+auth-vpn connect <server-ip>:7777 --token <token> \
   --forward 5432:10.8.0.1:5432 \
   --forward 6379:10.8.0.1:6379 \
   --background --reconnect
@@ -94,7 +94,7 @@ Point your app at `127.0.0.1:<localPort>` — it connects as if the service is l
 ## Profiles
 
 ```bash
-auth-vpn profile save staging --host 20.98.154.174:7777 --token <token>
+auth-vpn profile save staging --host <server-ip>:7777 --token <token>
 auth-vpn profile list
 ```
 
