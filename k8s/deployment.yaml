@@ -17,6 +17,9 @@ spec:
         - name: auth-vpn
           image: <your-registry>/auth-vpn:latest  # replace with your image after: docker build + push
           imagePullPolicy: Always
+          env:
+            - name: AUTH_VPN_PORT
+              value: "7777"  # change if 7777 is taken; update the ports below to match
           ports:
             - name: vpn
               containerPort: 7777

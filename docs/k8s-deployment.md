@@ -4,6 +4,27 @@ Run auth-vpn as a pod inside your cluster so any laptop (or CI runner) can reach
 
 ---
 
+## Cluster compatibility
+
+| Cluster type | Supported | Notes |
+|---|---|---|
+| AKS (standard node pools) | ✅ | Fully supported |
+| GKE Standard | ✅ | Fully supported |
+| EKS (managed nodes) | ✅ | Fully supported |
+| Self-managed (kubeadm etc.) | ✅ | Fully supported |
+| AWS Fargate | ❌ | No `/dev/net/tun`, no hostPath volumes |
+| GKE Autopilot | ❌ | Capabilities (`NET_ADMIN`) and hostPath blocked |
+| Azure Container Instances | ❌ | No TUN device support |
+
+**PodSecurity profile requirement**: auth-vpn needs `NET_ADMIN` and `NET_RAW` capabilities and a hostPath volume for `/dev/net/tun`. This is compatible with the `baseline` and `privileged` PodSecurity profiles, but **not** `restricted`. If your namespace enforces `restricted`, either relax the policy for this namespace or run auth-vpn in a dedicated namespace.
+
+```bash
+# Check what PodSecurity policy your namespace enforces
+kubectl get ns <namespace> -o jsonpath='{.metadata.labels}'
+```
+
+---
+
 ## How it works
 
 ```
@@ -332,12 +353,15 @@ kubectl get storageclass
 kubectl logs -n <namespace> deploy/auth-vpn --previous
 ```
 
-Common cause: `/dev/net/tun` unavailable. Try adding `privileged: true` to `securityContext` as a temporary test.
+Common causes:
+- `/dev/net/tun` unavailable on the node — check cluster compatibility table above
+- iptables permission denied — your namespace PodSecurity profile may be blocking `NET_ADMIN`; check with `kubectl get ns <namespace> -o jsonpath='{.metadata.labels}'`
+- Port conflict — if `7777` is already in use on the node, set `AUTH_VPN_PORT` in the deployment env and update the Service port to match
 
 **`auth-vpn connect` times out**
 
 - Check the pod is running: `kubectl get pods -n <namespace> -l app=auth-vpn`
-- Confirm port `7777` is open in the node Network Security Group / firewall rules
+- Confirm the tunnel port is open in the node Network Security Group / firewall rules (default `7777`)
 
 **Tunnel connects but cluster services are unreachable**
 

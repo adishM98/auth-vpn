@@ -15,5 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /auth-vpn /usr/local/bin/auth-vpn
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# AUTH_VPN_PORT controls the tunnel port (default 7777).
+# Override at runtime: docker run -e AUTH_VPN_PORT=8888 ...
+# or in k8s via env: in the deployment manifest.
+ENV AUTH_VPN_PORT=7777
 EXPOSE 7777 9100 2222
 ENTRYPOINT ["docker-entrypoint.sh"]
