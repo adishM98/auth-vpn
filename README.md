@@ -21,17 +21,9 @@ VM (Docker containers)   ←   auth-vpn server   (configurable port, TLS)
 
 The server creates a TUN interface at `10.8.0.1` and assigns each connecting client an IP from `10.8.0.2–254`. All IP traffic to the `10.8.0.0/24` subnet is routed through the tunnel at the OS level — no per-app configuration needed.
 
-Every container on the VM is reachable the same way:
+Every service on the server is reachable at `10.8.0.1:<port>` — databases, internal APIs, dashboards, anything running on that machine.
 
-```
-PostgreSQL  →  10.8.0.1:5432
-MySQL       →  10.8.0.1:3306
-MongoDB     →  10.8.0.1:27017
-Redis       →  10.8.0.1:6379
-Any service →  10.8.0.1:<port>
-```
-
-> **Internet speed is not affected.** auth-vpn is a split-tunnel — only traffic to `10.8.0.0/24` goes through the tunnel. All other traffic (browsing, downloads, Slack) uses your normal connection.
+> **Internet speed is not affected.** auth-vpn is a split-tunnel — only traffic to `10.8.0.0/24` goes through the tunnel. All other traffic uses your normal connection.
 
 ---
 

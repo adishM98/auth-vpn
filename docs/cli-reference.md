@@ -84,6 +84,13 @@ auth-vpn connect staging \
 
 Point your app at `127.0.0.1:<localPort>` — it connects as if the service is local. No routing table changes, no kernel privileges needed.
 
+> **Common mistake — port already in use locally**
+> If you run the same service on your machine (e.g. a local Postgres on `5432`), binding `--forward 5432:...` will fail because that port is taken. Use a different local port instead:
+> ```bash
+> --forward 15432:10.8.0.1:5432   # local 15432 → remote 5432
+> ```
+> Then point your app at `127.0.0.1:15432`.
+
 ## Profiles
 
 ```bash
