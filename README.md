@@ -249,7 +249,10 @@ kubectl apply -f k8s/service.yaml
 # 5. Get the admin token from first-boot logs
 kubectl logs -n your-namespace deploy/auth-vpn
 
-# 6. Connect, routing all cluster traffic through the tunnel
+# 6. Connect — namespace-scoped (only services you explicitly list)
+auth-vpn connect <LB-IP>:7777 --token <token> --route 10.0.x.x/32 --route 10.0.y.y/32
+
+# Or route the entire cluster service CIDR
 auth-vpn connect <LB-IP>:7777 --token <token> --route <service-cidr>
 ```
 

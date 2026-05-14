@@ -166,9 +166,36 @@ auth-vpn   LoadBalancer   10.0.x.x      20.x.x.x      7777:.../TCP, 9100:.../TCP
 
 ## Step 7 — Connect from your laptop
 
-**Route the entire cluster service CIDR (recommended)**
+You can route the entire cluster or just the services in a specific namespace. Start with namespace-scoped routing and widen only if needed.
 
-This gives access to every ClusterIP service in the cluster. Find your cluster's service CIDR:
+---
+
+**Option A — Namespace-scoped routing (recommended)**
+
+Route only the ClusterIP addresses of services in your namespace. This is the least permissive option — your laptop can only reach what you explicitly list.
+
+Get the ClusterIPs for your namespace:
+```bash
+kubectl get svc -n <namespace>
+```
+
+Then pass each IP as a `/32` route:
+```bash
+auth-vpn connect <LB-IP>:7777 --token <token> \
+  --route 10.0.x.x/32 \
+  --route 10.0.y.y/32 \
+  --background --reconnect
+```
+
+Add or remove `--route` flags as services change. No other namespace is reachable.
+
+---
+
+**Option B — Whole cluster routing**
+
+Routes the entire service CIDR, giving access to every ClusterIP in every namespace. Convenient if you work across many namespaces.
+
+Find your cluster's service CIDR:
 ```bash
 # AKS
 az aks show -n <cluster-name> -g <resource-group> --query networkProfile.serviceCidr
@@ -182,13 +209,10 @@ kubectl cluster-info dump | grep -m1 service-cluster-ip-range
 
 Then connect:
 ```bash
-auth-vpn connect <LB-IP>:7777 --token <token> --route <service-cidr>
-```
-
-**Background mode with auto-reconnect (recommended for daily use)**
-```bash
 auth-vpn connect <LB-IP>:7777 --token <token> --route <service-cidr> --background --reconnect
 ```
+
+---
 
 **Save as a profile**
 ```bash
@@ -196,6 +220,10 @@ auth-vpn profile save k8s-staging \
   --host <LB-IP>:7777 \
   --token <token>
 
+# Namespace-scoped
+auth-vpn connect k8s-staging --route 10.0.x.x/32 --route 10.0.y.y/32 --background --reconnect
+
+# Whole cluster
 auth-vpn connect k8s-staging --route <service-cidr> --background --reconnect
 ```
 
