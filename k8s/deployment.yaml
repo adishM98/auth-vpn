@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: auth-vpn
-  namespace: swiggy
+  namespace: default  # change to your namespace
 spec:
   replicas: 1
   selector:
@@ -15,8 +15,7 @@ spec:
     spec:
       containers:
         - name: auth-vpn
-          # Replace with your registry, e.g. myregistry.azurecr.io/auth-vpn:latest
-          image: auth-vpn:latest
+          image: <your-registry>/auth-vpn:latest  # replace with your image after: docker build + push
           imagePullPolicy: Always
           ports:
             - name: vpn

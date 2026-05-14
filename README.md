@@ -525,6 +525,46 @@ services:
 
 ---
 
+## Kubernetes
+
+Run auth-vpn as a pod inside your cluster so your laptop (or CI) can reach every ClusterIP service directly — databases, dashboards, internal APIs — without a public LoadBalancer IP for each one.
+
+```
+Your laptop  ──TLS──►  auth-vpn LoadBalancer  ──►  ClusterIP services
+                        (one public IP)              (stay private)
+```
+
+**Quick start:**
+
+```bash
+# 1. Build your image from the included Dockerfile and push to your registry
+docker build -t <your-registry>/auth-vpn:latest .
+docker push <your-registry>/auth-vpn:latest
+
+# 2. Set your image in k8s/deployment.yaml (the only line that requires a real value)
+#    Replace: image: <your-registry>/auth-vpn:latest
+#    With:    image: myacr.azurecr.io/auth-vpn:latest  (or your actual tag)
+
+# 3. Set your namespace across all three manifests (default: "default")
+sed -i '' 's/namespace: default/namespace: your-namespace/g' k8s/*.yaml
+# Linux: sed -i 's/namespace: default/namespace: your-namespace/g' k8s/*.yaml
+
+# 4. Apply
+kubectl apply -f k8s/pvc.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+
+# 5. Get the admin token from first-boot logs
+kubectl logs -n your-namespace deploy/auth-vpn
+
+# 6. Connect, routing all cluster traffic through the tunnel
+auth-vpn connect <LB-IP>:7777 --token <token> --route <service-cidr>
+```
+
+> See [docs/k8s-deployment.md](docs/k8s-deployment.md) for the full guide — namespace setup, image registry options, connecting from a laptop or CI, token management, and troubleshooting.
+
+---
+
 ## Use in GitHub Actions
 
 auth-vpn ships a ready-made GitHub Action. Add two steps to any job — one to connect, one to disconnect — and every service on the server VM becomes reachable at `10.8.0.1`.
