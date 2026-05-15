@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 
@@ -23,7 +24,11 @@ type Config struct {
 
 // ConfigPath returns the path to the hub config file.
 func ConfigPath() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("hub: cannot determine home directory: %v; using current directory", err)
+		home = "."
+	}
 	return filepath.Join(home, ".auth-vpn", "hub.yaml")
 }
 

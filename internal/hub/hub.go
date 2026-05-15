@@ -1,6 +1,8 @@
 package hub
 
 import (
+	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -8,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -33,17 +36,22 @@ type Hub struct {
 	hcMu     sync.RWMutex
 	done     chan struct{}
 	hubKey   string
+	pollCtx  context.Context    // cancelled when Stop() is called; used for all poll requests
+	pollStop context.CancelFunc // cancels pollCtx
 }
 
 // New creates a Hub from the given config. hubKey protects the hub's own API
 // when set; pass "" to allow unauthenticated access (localhost-only recommended).
 func New(cfg *Config, hubKey string) *Hub {
+	ctx, cancel := context.WithCancel(context.Background())
 	h := &Hub{
 		cfg:      snapshotConfig(cfg),
 		statuses: make(map[string]serverStatus),
 		hcache:   make(map[string]*http.Client),
 		done:     make(chan struct{}),
 		hubKey:   hubKey,
+		pollCtx:  ctx,
+		pollStop: cancel,
 	}
 	h.rebuildClientCache()
 	return h
@@ -75,7 +83,12 @@ func (h *Hub) Start(addr string) error {
 		WriteTimeout: 60 * time.Second,
 	}
 
-	go func() { <-h.done; srv.Close() }()
+	go func() {
+		<-h.done
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx) //nolint:errcheck
+	}()
 	go h.pollLoop()
 
 	log.Printf("hub dashboard: http://%s", addr)
@@ -86,37 +99,37 @@ func (h *Hub) Start(addr string) error {
 }
 
 // Stop shuts the hub down.
-func (h *Hub) Stop() { close(h.done) }
+func (h *Hub) Stop() { h.pollStop(); close(h.done) }
 
 // ── Health polling ────────────────────────────────────────────────────────────
 
 func (h *Hub) pollLoop() {
-	h.pollAll()
+	h.pollAll(h.pollCtx)
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
 	for {
 		select {
 		case <-tick.C:
-			h.pollAll()
+			h.pollAll(h.pollCtx)
 		case <-h.done:
 			return
 		}
 	}
 }
 
-func (h *Hub) pollAll() {
+func (h *Hub) pollAll(ctx context.Context) {
 	h.cfgMu.RLock()
 	servers := make([]ServerEntry, len(h.cfg.Servers))
 	copy(servers, h.cfg.Servers)
 	h.cfgMu.RUnlock()
 	for _, s := range servers {
-		go h.pollOne(s)
+		go h.pollOne(ctx, s)
 	}
 }
 
-func (h *Hub) pollOne(s ServerEntry) {
+func (h *Hub) pollOne(ctx context.Context, s ServerEntry) {
 	client := h.clientFor(s)
-	req, err := http.NewRequest(http.MethodGet, s.URL+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL+"/health", nil)
 	if err != nil {
 		h.setStatus(s.Name, serverStatus{Online: false, LastChecked: time.Now(), Error: err.Error()})
 		return
@@ -134,7 +147,7 @@ func (h *Hub) pollOne(s ServerEntry) {
 		Uptime  float64 `json:"uptime"`
 		Clients int64   `json:"clients"`
 	}
-	json.NewDecoder(resp.Body).Decode(&body) //nolint:errcheck
+	json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&body) //nolint:errcheck
 	h.setStatus(s.Name, serverStatus{
 		Online:        resp.StatusCode == http.StatusOK,
 		ActiveClients: body.Clients,
@@ -158,10 +171,15 @@ func (h *Hub) getStatus(name string) serverStatus {
 // ── HTTP client cache ─────────────────────────────────────────────────────────
 
 func (h *Hub) rebuildClientCache() {
+	h.cfgMu.RLock()
+	servers := make([]ServerEntry, len(h.cfg.Servers))
+	copy(servers, h.cfg.Servers)
+	h.cfgMu.RUnlock()
+
 	h.hcMu.Lock()
 	defer h.hcMu.Unlock()
-	h.hcache = make(map[string]*http.Client, len(h.cfg.Servers))
-	for _, s := range h.cfg.Servers {
+	h.hcache = make(map[string]*http.Client, len(servers))
+	for _, s := range servers {
 		h.hcache[s.Name] = buildHTTPClient(s)
 	}
 }
@@ -232,13 +250,18 @@ func (h *Hub) handleServers(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"servers": result})
 
 	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var body struct {
 			Name           string `json:"name"`
 			URL            string `json:"url"`
 			APIKey         string `json:"api_key"`
 			TLSFingerprint string `json:"tls_fingerprint"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.URL == "" {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json: " + err.Error()})
+			return
+		}
+		if body.Name == "" || body.URL == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and url required"})
 			return
 		}
@@ -273,7 +296,7 @@ func (h *Hub) handleServers(w http.ResponseWriter, r *http.Request) {
 		h.hcMu.Lock()
 		h.hcache[entry.Name] = buildHTTPClient(entry)
 		h.hcMu.Unlock()
-		go h.pollOne(entry)
+		go h.pollOne(h.pollCtx, entry)
 
 		writeJSON(w, http.StatusCreated, map[string]string{"name": entry.Name})
 
@@ -289,7 +312,7 @@ func (h *Hub) handleServerByName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/api/hub/servers/")
-	if name == "" {
+	if name == "" || name == "probe" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
 		return
 	}
@@ -334,6 +357,7 @@ func (h *Hub) handleProbe(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var body struct {
 		URL    string `json:"url"`
 		APIKey string `json:"api_key"`
@@ -345,6 +369,10 @@ func (h *Hub) handleProbe(w http.ResponseWriter, r *http.Request) {
 	parsed, err := url.Parse(body.URL)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid url: " + err.Error()})
+		return
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url must be http:// or https://"})
 		return
 	}
 
@@ -428,7 +456,12 @@ func (h *Hub) handleOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target := entry.URL + "/ui"
+	base, err := url.Parse(entry.URL)
+	if err != nil || base.Host == "" {
+		http.Error(w, "invalid server url", http.StatusInternalServerError)
+		return
+	}
+	target := base.Scheme + "://" + base.Host + "/ui"
 	if entry.APIKey != "" {
 		target += "?key=" + url.QueryEscape(entry.APIKey)
 	}
@@ -469,7 +502,13 @@ func (h *Hub) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetURL := entry.URL + upstreamPath
+	cleanPath := path.Clean(upstreamPath)
+	if strings.Contains(cleanPath, "..") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid path"})
+		return
+	}
+
+	targetURL := entry.URL + cleanPath
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery
 	}
@@ -484,6 +523,7 @@ func (h *Hub) handleProxy(w http.ResponseWriter, r *http.Request) {
 			req.Header[k] = vv
 		}
 	}
+	req.Header.Del("Host")
 	if entry.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+entry.APIKey)
 	} else {
@@ -514,11 +554,13 @@ func (h *Hub) withAuth(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 			return
 		}
-		if strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ") == h.hubKey {
+		key := []byte(h.hubKey)
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(token), key) == 1 {
 			next(w, r)
 			return
 		}
-		if r.URL.Query().Get("key") == h.hubKey {
+		if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), key) == 1 {
 			next(w, r)
 			return
 		}
