@@ -2,10 +2,7 @@ package client
 
 import (
 	"bufio"
-	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
 	"fmt"
 	"log"
 	"net"
@@ -14,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adishM98/auth-vpn/internal/tlsutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -51,50 +49,12 @@ func saveKnownHosts(kh knownHostsFile) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
-func certFingerprint(cert *x509.Certificate) string {
-	sum := sha256.Sum256(cert.Raw)
-	return "SHA256:" + base64.StdEncoding.EncodeToString(sum[:])
-}
-
-// fetchFingerprint dials addr with verification disabled solely to retrieve
-// the server certificate fingerprint for TOFU prompting.
 func fetchFingerprint(addr string) (string, error) {
-	conn, err := tls.DialWithDialer(
-		&net.Dialer{Timeout: 10 * time.Second},
-		"tcp", addr,
-		&tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13}, //nolint:gosec
-	)
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-	certs := conn.ConnectionState().PeerCertificates
-	if len(certs) == 0 {
-		return "", fmt.Errorf("server sent no certificates")
-	}
-	return certFingerprint(certs[0]), nil
+	return tlsutil.FetchFingerprint(addr)
 }
 
-// pinnedTLSConfig returns a TLS config that verifies the server presents a
-// certificate matching fp instead of doing CA chain verification.
 func pinnedTLSConfig(fp string) *tls.Config {
-	return &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec // manual fingerprint check in VerifyConnection
-		MinVersion:         tls.VersionTLS13,
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			if len(cs.PeerCertificates) == 0 {
-				return fmt.Errorf("server sent no certificates")
-			}
-			got := certFingerprint(cs.PeerCertificates[0])
-			if got != fp {
-				return fmt.Errorf(
-					"certificate fingerprint mismatch — possible MITM attack\n  expected: %s\n  got:      %s",
-					fp, got,
-				)
-			}
-			return nil
-		},
-	}
+	return tlsutil.PinnedTLSConfig(fp)
 }
 
 func isCertError(err error) bool {

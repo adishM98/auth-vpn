@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/adishM98/auth-vpn/internal/auth"
 	"github.com/adishM98/auth-vpn/internal/client"
+	"github.com/adishM98/auth-vpn/internal/hub"
 	"github.com/adishM98/auth-vpn/internal/server"
 	"github.com/adishM98/auth-vpn/internal/updater"
 )
@@ -43,7 +44,7 @@ func rootCmd() *cobra.Command {
 		Use:   "auth-vpn",
 		Short: "Lightweight self-hosted VPN tunnel for developers and CI/CD",
 	}
-	root.AddCommand(serverCmd(), connectCmd(), disconnectCmd(), statusCmd(), profileCmd(), versionCmd(), updateCmd())
+	root.AddCommand(serverCmd(), connectCmd(), disconnectCmd(), statusCmd(), profileCmd(), versionCmd(), updateCmd(), hubCmd())
 	return root
 }
 
@@ -826,4 +827,41 @@ func updateCmd() *cobra.Command {
 			return updater.Run(Version)
 		},
 	}
+}
+
+// ─── hub ──────────────────────────────────────────────────────────────────────
+
+func hubCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "hub",
+		Short: "Central dashboard to manage multiple auth-vpn servers from one place",
+	}
+	cmd.AddCommand(hubServeCmd())
+	return cmd
+}
+
+func hubServeCmd() *cobra.Command {
+	var port int
+	var bind string
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the hub dashboard (default: http://127.0.0.1:9200)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := hub.LoadConfig()
+			if err != nil {
+				return fmt.Errorf("loading hub config: %w", err)
+			}
+			addr := fmt.Sprintf("%s:%d", bind, port)
+			fmt.Printf("Hub dashboard → http://%s\n", addr)
+			fmt.Printf("Config file   → %s\n", hub.ConfigPath())
+			if len(cfg.Servers) == 0 {
+				fmt.Println("No servers registered yet — open the dashboard to add one.")
+			}
+			h := hub.New(cfg, cfg.HubKey)
+			return h.Start(addr)
+		},
+	}
+	cmd.Flags().IntVarP(&port, "port", "p", 9200, "port to listen on")
+	cmd.Flags().StringVar(&bind, "bind", "127.0.0.1", "address to bind to")
+	return cmd
 }
