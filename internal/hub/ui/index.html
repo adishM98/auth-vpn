@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>auth-vpn hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #090b12;
+  --surface: #0f1119;
+  --surface2: #161927;
+  --surface3: #1c2033;
+  --border: #1e2236;
+  --border2: #272d45;
+  --text: #eaecf5;
+  --text2: #bfc8dc;
+  --muted: #57607c;
+  --muted2: #7882a0;
+  --accent: #6366f1;
+  --accent2: #818cf8;
+  --accent-dim: #191845;
+  --accent-hover: #4f46e5;
+  --accent-glow: rgba(99,102,241,.15);
+  --green: #34d399;
+  --green-dim: #052e1a;
+  --green-text: #6ee7b7;
+  --green-border: rgba(52,211,153,.18);
+  --red: #f87171;
+  --red-dim: #2a0f0f;
+  --red-text: #fca5a5;
+  --red-border: rgba(248,113,113,.18);
+  --yellow: #fbbf24;
+  --yellow-dim: #271900;
+  --yellow-text: #fde68a;
+  --yellow-border: rgba(251,191,36,.18);
+  --blue: #60a5fa;
+  --blue-dim: #0a1d38;
+  --blue-text: #93c5fd;
+  --blue-border: rgba(96,165,250,.18);
+  --radius: 10px;
+  --radius-sm: 7px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* Header */
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 54px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.3px;
+  color: var(--text);
+  text-decoration: none;
+}
+.logo-icon {
+  width: 30px; height: 30px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(99,102,241,.3);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+}
+.logo em { color: var(--accent); font-style: normal; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.live-badge {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 500; color: var(--muted2);
+  background: var(--surface2); border: 1px solid var(--border);
+  padding: 5px 12px; border-radius: 20px;
+}
+#status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green); flex-shrink: 0;
+  animation: pulse 2.5s infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(52,211,153,.5); }
+  50% { opacity:.85; box-shadow:0 0 0 5px rgba(52,211,153,0); }
+}
+
+/* Layout */
+.layout { display: flex; min-height: calc(100vh - 54px); }
+
+/* Sidebar */
+nav {
+  width: 220px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px 0;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 54px;
+  height: calc(100vh - 54px);
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+.nav-section {
+  font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .9px;
+  font-weight: 600; padding: 14px 12px 5px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 12px; border-radius: var(--radius-sm);
+  color: var(--muted2); cursor: pointer;
+  font-size: 13px; font-weight: 500;
+  transition: background .12s, color .12s;
+  border: none; background: none; width: 100%;
+  text-align: left; position: relative; font-family: inherit;
+}
+.nav-item:hover { background: var(--surface2); color: var(--text2); }
+.nav-item.active { background: var(--accent-dim); color: var(--accent2); }
+.nav-item.active::before {
+  content: '';
+  position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 55%;
+  background: var(--accent); border-radius: 0 3px 3px 0;
+}
+.nav-item svg { flex-shrink: 0; }
+.nav-spacer { flex: 1; }
+.nav-bottom {
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  margin-top: 8px;
+}
+.server-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-left: auto;
+}
+.server-dot.online { background: var(--green); }
+.server-dot.offline { background: var(--muted); }
+.server-dot.unknown { background: var(--muted); opacity: .4; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinning { animation: spin .6s linear infinite; }
+.nav-open-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); padding: 2px 4px; border-radius: 4px;
+  transition: color .15s, background .15s; flex-shrink: 0; line-height: 1;
+  font-size: 13px;
+}
+.nav-open-btn:hover { color: var(--accent2); background: var(--accent-dim); }
+
+/* Main */
+main { flex: 1; padding: 28px 32px; overflow-y: auto; max-width: 1100px; }
+.page-header { margin-bottom: 22px; display: flex; align-items: flex-start; justify-content: space-between; }
+.page-header-left {}
+.page-title { font-size: 17px; font-weight: 700; letter-spacing: -.4px; color: var(--text); }
+.page-desc { font-size: 12.5px; color: var(--muted2); margin-top: 3px; }
+
+/* Views */
+.view { display: none; }
+.view.active { display: block; }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 26px; }
+.stat {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 20px 16px;
+  position: relative; overflow: hidden; transition: border-color .2s;
+}
+.stat:hover { border-color: var(--border2); }
+.stat-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+.stat-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.stat-label { font-size: 11.5px; color: var(--muted2); font-weight: 500; }
+.stat-icon { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.stat-value { font-size: 28px; font-weight: 700; line-height: 1; letter-spacing: -1.5px; color: var(--text); }
+.stat-value.sm { font-size: 20px; letter-spacing: -.5px; }
+
+/* Server cards (overview) */
+.server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.server-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px;
+  cursor: pointer; transition: border-color .2s, transform .15s;
+  position: relative; overflow: hidden;
+}
+.server-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.server-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.server-card-name { font-size: 15px; font-weight: 700; letter-spacing: -.3px; }
+.server-card-url { font-size: 11.5px; color: var(--muted2); margin-bottom: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.server-card-meta { display: flex; gap: 16px; font-size: 12px; color: var(--muted2); }
+.server-card-meta strong { color: var(--text); }
+.server-card-actions { margin-top: 16px; display: flex; gap: 8px; }
+.server-card-remove {
+  margin-left: auto;
+  background: none; border: none;
+  color: var(--muted); cursor: pointer; padding: 2px 4px;
+  border-radius: 4px; transition: color .15s, background .15s;
+  font-size: 12px;
+}
+.server-card-remove:hover { color: var(--red-text); background: var(--red-dim); }
+
+/* Badge */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 600;
+}
+.badge-green { background: var(--green-dim); color: var(--green-text); border: 1px solid var(--green-border); }
+.badge-red { background: var(--red-dim); color: var(--red-text); border: 1px solid var(--red-border); }
+.badge-yellow { background: var(--yellow-dim); color: var(--yellow-text); border: 1px solid var(--yellow-border); }
+.badge-blue { background: var(--blue-dim); color: var(--blue-text); border: 1px solid var(--blue-border); }
+.badge-muted { background: var(--surface2); color: var(--muted2); border: 1px solid var(--border); }
+
+/* Tabs (within server view) */
+.tab-bar {
+  display: flex; gap: 2px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 4px;
+  margin-bottom: 20px; width: fit-content;
+}
+.tab-btn {
+  padding: 6px 16px; border-radius: 7px; font-size: 12.5px; font-weight: 500;
+  color: var(--muted2); border: none; background: none; cursor: pointer;
+  transition: background .12s, color .12s; font-family: inherit;
+}
+.tab-btn:hover { color: var(--text2); }
+.tab-btn.active { background: var(--surface3); color: var(--text); }
+.stab { display: none; }
+.stab.active { display: block; }
+
+/* Card */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; margin-bottom: 18px;
+  transition: border-color .2s;
+}
+.card-header {
+  padding: 13px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--surface2);
+}
+.card-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); }
+.card-title svg { color: var(--muted2); flex-shrink: 0; }
+.card-form { padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--surface2); }
+
+/* Forms */
+.form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-label { font-size: 11.5px; color: var(--muted2); font-weight: 500; }
+input[type=text], input[type=number], input[type=password] {
+  background: var(--surface3); border: 1px solid var(--border2);
+  color: var(--text); border-radius: var(--radius-sm);
+  padding: 7px 12px; font-size: 13px; font-family: inherit;
+  outline: none; transition: border-color .15s;
+  width: 200px;
+}
+input:focus { border-color: var(--accent); }
+input::placeholder { color: var(--muted); }
+.error-msg { font-size: 12px; color: var(--red-text); margin-top: 8px; display: none; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: var(--radius-sm);
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: none; transition: background .12s, opacity .12s; font-family: inherit;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-ghost {
+  background: var(--surface3); color: var(--text2);
+  border: 1px solid var(--border2);
+}
+.btn-ghost:hover { background: var(--surface2); }
+.btn-danger { background: var(--red-dim); color: var(--red-text); border: 1px solid var(--red-border); }
+.btn-danger:hover { background: #3d1212; }
+.btn-sm { padding: 4px 10px; font-size: 11.5px; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  text-align: left; padding: 9px 16px;
+  font-size: 10.5px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .6px; font-weight: 600;
+  background: var(--surface2); border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+td { padding: 11px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text2); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,.01); }
+.empty-row td { color: var(--muted); text-align: center; padding: 28px; font-style: italic; }
+.mono { font-family: 'SF Mono','Fira Code',monospace; font-size: 12px; }
+.name-cell { display: flex; align-items: center; gap: 10px; }
+.name-avatar {
+  width: 28px; height: 28px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; flex-shrink: 0;
+  background: var(--accent-dim); color: var(--accent2);
+  border: 1px solid rgba(99,102,241,.22);
+}
+
+/* Token result box */
+.token-result {
+  display: none; margin-top: 12px;
+  background: var(--surface3); border: 1px solid var(--border2);
+  border-radius: var(--radius-sm); padding: 12px 14px;
+}
+.token-result-row { display: flex; align-items: center; gap: 10px; }
+.token-result-text {
+  font-family: 'SF Mono','Fira Code',monospace; font-size: 12px;
+  color: var(--green-text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Fingerprint display */
+.fp-box {
+  background: var(--surface3); border: 1px solid var(--border2);
+  border-radius: var(--radius-sm); padding: 14px 16px;
+  font-family: 'SF Mono','Fira Code',monospace; font-size: 12px;
+  color: var(--accent2); word-break: break-all;
+  margin: 14px 0;
+}
+.fp-note { font-size: 12px; color: var(--muted2); line-height: 1.6; }
+
+/* Modal */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.7); backdrop-filter: blur(3px);
+  z-index: 200; align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 14px; padding: 28px; width: 480px; max-width: calc(100vw - 40px);
+  box-shadow: 0 24px 64px rgba(0,0,0,.6);
+}
+.modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.modal-sub { font-size: 12.5px; color: var(--muted2); margin-bottom: 20px; }
+.modal-fields { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
+.modal-field { display: flex; flex-direction: column; gap: 5px; }
+.modal-field label { font-size: 11.5px; color: var(--muted2); font-weight: 500; }
+.modal-field input { width: 100%; }
+.modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.modal-error { font-size: 12px; color: var(--red-text); margin-top: 8px; display: none; }
+.modal-step { display: none; }
+.modal-step.active { display: block; }
+.warn-icon { color: var(--yellow); font-size: 18px; margin-right: 6px; }
+
+/* SSH key textarea */
+textarea {
+  width: 100%; height: 160px; resize: vertical;
+  background: var(--surface3); border: 1px solid var(--border2);
+  color: var(--green-text); border-radius: var(--radius-sm);
+  padding: 12px; font-family: 'SF Mono','Fira Code',monospace;
+  font-size: 11.5px; line-height: 1.6; outline: none;
+  margin: 12px 0 0;
+}
+
+/* Toast */
+#toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--surface3); color: var(--text);
+  border: 1px solid var(--border2); border-radius: 8px;
+  padding: 10px 20px; font-size: 13px; font-weight: 500;
+  opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; z-index: 300;
+  white-space: nowrap;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.error { border-color: var(--red-border); color: var(--red-text); }
+
+/* Empty state */
+.empty-state {
+  text-align: center; padding: 60px 20px;
+  color: var(--muted);
+}
+.empty-state h2 { font-size: 18px; font-weight: 600; color: var(--muted2); margin-bottom: 8px; }
+.empty-state p { font-size: 13.5px; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="#">
+    <div class="logo-icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" color="#818cf8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    </div>
+    auth-vpn <em>hub</em>
+  </a>
+  <div class="header-right">
+    <div class="live-badge">
+      <div id="status-dot"></div>
+      <span id="header-summary">loading...</span>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <nav>
+    <div class="nav-section">Dashboard</div>
+    <button class="nav-item active" id="nav-overview" onclick="showView('overview')">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Overview
+    </button>
+
+    <div class="nav-section">Servers</div>
+    <div id="server-nav-list">
+      <!-- populated by JS -->
+    </div>
+
+    <div class="nav-spacer"></div>
+    <div class="nav-bottom">
+      <button class="nav-item" onclick="openAddModal()" style="color:var(--accent2);">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Server
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main>
+
+    <!-- ── Overview ── -->
+    <div id="view-overview" class="view active">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title">Overview</div>
+          <div class="page-desc">All registered auth-vpn servers at a glance</div>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-bar" style="background:linear-gradient(90deg,var(--accent),var(--accent2))"></div>
+          <div class="stat-top">
+            <div class="stat-label">Total Servers</div>
+            <div class="stat-icon" style="background:var(--accent-dim)">
+              <svg width="14" height="14" fill="none" stroke="var(--accent2)" stroke-width="2.2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+          </div>
+          <div class="stat-value" id="s-total">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-bar" style="background:linear-gradient(90deg,var(--green),#6ee7b7)"></div>
+          <div class="stat-top">
+            <div class="stat-label">Online</div>
+            <div class="stat-icon" style="background:var(--green-dim)">
+              <svg width="14" height="14" fill="none" stroke="var(--green-text)" stroke-width="2.2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+          </div>
+          <div class="stat-value" id="s-online">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-bar" style="background:linear-gradient(90deg,var(--blue),#93c5fd)"></div>
+          <div class="stat-top">
+            <div class="stat-label">Total Clients</div>
+            <div class="stat-icon" style="background:var(--blue-dim)">
+              <svg width="14" height="14" fill="none" stroke="var(--blue-text)" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+          </div>
+          <div class="stat-value" id="s-clients">—</div>
+        </div>
+      </div>
+
+      <div id="overview-empty" class="empty-state" style="display:none;">
+        <h2>No servers yet</h2>
+        <p>Add your first auth-vpn server to start managing it from here.</p>
+        <button class="btn btn-primary" onclick="openAddModal()">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Server
+        </button>
+      </div>
+
+      <div class="server-grid" id="server-grid"></div>
+    </div>
+
+    <!-- ── Server view ── -->
+    <div id="view-server" class="view">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title" id="srv-title">—</div>
+          <div class="page-desc" id="srv-desc">—</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span id="srv-badge"></span>
+          <button class="btn btn-ghost btn-sm" id="refresh-btn" onclick="manualRefresh()" title="Fetch latest data from server">
+            <svg id="refresh-icon" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+          <span id="last-refreshed" style="font-size:11px;color:var(--muted);"></span>
+        </div>
+      </div>
+
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="showTab('clients',this)">Clients</button>
+        <button class="tab-btn" onclick="showTab('tokens',this)">Tokens</button>
+        <button class="tab-btn" onclick="showTab('whitelist',this)">Whitelist</button>
+        <button class="tab-btn" onclick="showTab('forwards',this)">Forwards</button>
+        <button class="tab-btn" onclick="showTab('sshkeys',this)">SSH Keys</button>
+      </div>
+
+      <!-- Clients tab -->
+      <div id="stab-clients" class="stab active">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+              Connected Clients
+            </div>
+            <span id="client-count-badge" class="badge badge-muted">0 online</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Tunnel IP</th><th>Connected</th><th>In</th><th>Out</th><th>Status</th><th></th></tr></thead>
+              <tbody id="clients-body"><tr class="empty-row"><td colspan="7">loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tokens tab -->
+      <div id="stab-tokens" class="stab">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              Access Tokens
+            </div>
+          </div>
+          <div class="card-form">
+            <form id="token-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <div class="form-label">Token Name</div>
+                  <input type="text" id="token-name" placeholder="e.g. alice-laptop" required>
+                </div>
+                <div class="form-group" style="justify-content:flex-end;padding-bottom:2px;">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted2);cursor:pointer;margin-bottom:7px;">
+                    <input type="checkbox" id="token-onetime" style="width:auto;"> One-time use
+                  </label>
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top:auto;">
+                  <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Create
+                </button>
+              </div>
+            </form>
+            <div class="token-result" id="token-result">
+              <div style="font-size:11.5px;color:var(--muted2);margin-bottom:6px;">Copy this token — it won't be shown again:</div>
+              <div class="token-result-row">
+                <div class="token-result-text" id="token-result-text"></div>
+                <button class="btn btn-ghost btn-sm" onclick="copyTokenResult()">Copy</button>
+              </div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Created</th><th>Expires</th><th>Type</th><th></th></tr></thead>
+              <tbody id="tokens-body"><tr class="empty-row"><td colspan="5">loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Whitelist tab -->
+      <div id="stab-whitelist" class="stab">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
+              IP Whitelist
+            </div>
+          </div>
+          <div class="card-form">
+            <form id="whitelist-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <div class="form-label">Name</div>
+                  <input type="text" id="wl-name" placeholder="e.g. office-router" required>
+                </div>
+                <div class="form-group">
+                  <div class="form-label">IP / CIDR</div>
+                  <input type="text" id="wl-ip" placeholder="e.g. 203.0.113.5" required>
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top:auto;">Add</button>
+              </div>
+              <div class="error-msg" id="wl-error"></div>
+            </form>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>IP / CIDR</th><th>Added</th><th></th></tr></thead>
+              <tbody id="whitelist-body"><tr class="empty-row"><td colspan="4">loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Forwards tab -->
+      <div id="stab-forwards" class="stab">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+              Direct Forwards
+            </div>
+          </div>
+          <div class="card-form">
+            <form id="forward-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <div class="form-label">Listen Port</div>
+                  <input type="number" id="fwd-port" placeholder="e.g. 15432" min="1" max="65535" required style="width:130px;">
+                </div>
+                <div class="form-group">
+                  <div class="form-label">Target</div>
+                  <input type="text" id="fwd-target" placeholder="e.g. 127.0.0.1:5432" required style="width:220px;">
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top:auto;">Add</button>
+              </div>
+              <div class="error-msg" id="fwd-error"></div>
+            </form>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Listen Port</th><th>→ Target</th><th>Status</th><th>Added</th><th></th></tr></thead>
+              <tbody id="forwards-body"><tr class="empty-row"><td colspan="5">loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- SSH Keys tab -->
+      <div id="stab-sshkeys" class="stab">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+              SSH Keys
+            </div>
+          </div>
+          <div class="card-form">
+            <div class="form-row" style="gap:12px;">
+              <div>
+                <div class="form-label" style="margin-bottom:5px;">Register existing key</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <input type="text" id="sshkey-name" placeholder="Name" style="width:160px;">
+                  </div>
+                  <div class="form-group">
+                    <input type="text" id="sshkey-pub" placeholder="ssh-ed25519 AAAA..." style="width:280px;">
+                  </div>
+                  <button class="btn btn-ghost" onclick="addSSHKey()">Add</button>
+                </div>
+              </div>
+              <div style="border-left:1px solid var(--border);padding-left:12px;">
+                <div class="form-label" style="margin-bottom:5px;">Generate new keypair</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <input type="text" id="sshkey-gen-name" placeholder="Name" style="width:160px;">
+                  </div>
+                  <button class="btn btn-primary" onclick="generateSSHKey()">Generate</button>
+                </div>
+              </div>
+            </div>
+            <div class="error-msg" id="sshkey-error"></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Added</th><th></th></tr></thead>
+              <tbody id="sshkeys-body"><tr class="empty-row"><td colspan="3">loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /view-server -->
+  </main>
+</div>
+
+<!-- Add Server Modal -->
+<div class="modal-overlay" id="add-modal">
+  <div class="modal">
+
+    <!-- Step 1: connection details -->
+    <div class="modal-step active" id="add-step1">
+      <h3>Add Server</h3>
+      <p class="modal-sub">Enter the connection details for the auth-vpn server.</p>
+      <div class="modal-fields">
+        <div class="modal-field">
+          <label>Name</label>
+          <input type="text" id="add-name" placeholder="e.g. prod-db" autocomplete="off">
+        </div>
+        <div class="modal-field">
+          <label>Dashboard URL</label>
+          <input type="text" id="add-url" placeholder="https://1.2.3.4:9100" autocomplete="off">
+        </div>
+        <div class="modal-field">
+          <label>API Key <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+          <input type="password" id="add-apikey" placeholder="server api key" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-error" id="add-error1"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeAddModal()">Cancel</button>
+        <button class="btn btn-primary" id="probe-btn" onclick="probeServer()">
+          Next
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 2: fingerprint confirmation -->
+    <div class="modal-step" id="add-step2">
+      <h3><span class="warn-icon">⚠</span> Verify Server Fingerprint</h3>
+      <p class="modal-sub">Confirm this fingerprint matches your server before trusting it.</p>
+      <div class="fp-box" id="fp-display"></div>
+      <p class="fp-note" id="fp-note">Compare this against the fingerprint shown when you ran <code>auth-vpn server install</code>.</p>
+      <div class="modal-error" id="add-error2"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="showStep(1)">Back</button>
+        <button class="btn btn-primary" onclick="confirmAddServer()">Trust &amp; Add</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- SSH key modal -->
+<div class="modal-overlay" id="sshkey-modal">
+  <div class="modal">
+    <h3>SSH Private Key Generated</h3>
+    <p class="modal-sub">Copy this private key and save it securely. It will not be shown again.</p>
+    <textarea id="sshkey-modal-text" readonly></textarea>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="document.getElementById('sshkey-modal').classList.remove('open')">Close</button>
+      <button class="btn btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('sshkey-modal-text').value).then(()=>toast('Copied'))">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy to Clipboard
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const HUB_KEY = new URLSearchParams(window.location.search).get('key') || '';
+
+// ── State ──────────────────────────────────────────────────────────────────────
+let servers = [];          // current server list from /api/hub/servers
+let currentView = 'overview';
+let currentTab  = 'clients';
+let serverRefreshTimer = null;
+
+// ── API helpers ────────────────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const headers = {
+    ...(HUB_KEY ? { 'Authorization': 'Bearer ' + HUB_KEY } : {}),
+    ...opts.headers,
+  };
+  try {
+    const r = await fetch(path, { ...opts, headers });
+    const data = await r.json().catch(() => ({}));
+    return { ok: r.ok, status: r.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: e.message } };
+  }
+}
+
+function proxyPath(serverName, path) {
+  return '/proxy/' + encodeURIComponent(serverName) + path;
+}
+
+async function srvApi(path, opts = {}) {
+  if (!currentView || currentView === 'overview') return { ok: false, data: {} };
+  return api(proxyPath(currentView, path), opts);
+}
+
+function esc(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+const fmt = {
+  bytes(n) {
+    if (!n) return '0 B';
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+    if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB';
+    return (n/1073741824).toFixed(2) + ' GB';
+  },
+  uptime(s) {
+    s = Math.floor(s || 0);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+    return h + 'h ' + m + 'm';
+  },
+  dt(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+  },
+};
+
+function avatar(name, bg, color, border) {
+  const b = bg     || 'var(--accent-dim)';
+  const c = color  || 'var(--accent2)';
+  const e = border || 'rgba(99,102,241,.22)';
+  return `<div class="name-avatar" style="background:${b};color:${c};border-color:${e}">${esc((name||'?')[0].toUpperCase())}</div>`;
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type === 'error' ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 3000);
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function showView(view) {
+  currentView = view;
+  document.getElementById('view-overview').classList.toggle('active', view === 'overview');
+  document.getElementById('view-server').classList.toggle('active', view !== 'overview');
+  document.getElementById('nav-overview').classList.toggle('active', view === 'overview');
+
+  const navItems = document.querySelectorAll('#server-nav-list .nav-item');
+  navItems.forEach(el => el.classList.toggle('active', el.dataset.server === view));
+
+  if (view !== 'overview') {
+    const srv = servers.find(s => s.name === view);
+    document.getElementById('srv-title').textContent = view;
+    document.getElementById('srv-desc').textContent = srv ? srv.url : '';
+    document.getElementById('last-refreshed').textContent = '';
+    updateSrvBadge(srv);
+    clearInterval(serverRefreshTimer);
+    refreshServerData();
+    serverRefreshTimer = setInterval(refreshServerData, 5000);
+  } else {
+    clearInterval(serverRefreshTimer);
+    renderOverview();
+  }
+}
+
+function showTab(tab, el) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.stab').forEach(t => t.classList.remove('active'));
+  document.getElementById('stab-' + tab).classList.add('active');
+  refreshServerData();
+}
+
+function updateSrvBadge(srv) {
+  const el = document.getElementById('srv-badge');
+  if (!srv) { el.innerHTML = ''; return; }
+  if (srv.online) {
+    el.innerHTML = `<span class="badge badge-green">● online · ${srv.active_clients} client${srv.active_clients === 1 ? '' : 's'}</span>`;
+  } else {
+    el.innerHTML = '<span class="badge badge-red">● offline</span>';
+  }
+}
+
+// ── Server list refresh (every 30s via hub health polling) ─────────────────────
+async function refreshServerList() {
+  const { ok, data } = await api('/api/hub/servers');
+  if (!ok) return;
+  servers = data.servers || [];
+  renderSidebar();
+  updateHeaderSummary();
+
+  if (currentView === 'overview') {
+    renderOverview();
+  } else {
+    // Update badge for current server
+    const srv = servers.find(s => s.name === currentView);
+    document.getElementById('srv-desc').textContent = srv ? srv.url : '';
+    updateSrvBadge(srv);
+  }
+}
+
+function renderSidebar() {
+  const list = document.getElementById('server-nav-list');
+  if (servers.length === 0) {
+    list.innerHTML = '<div style="padding:6px 12px;font-size:12px;color:var(--muted);">No servers yet</div>';
+    return;
+  }
+  list.innerHTML = servers.map(s => {
+    const dotClass = s.online ? 'online' : 'offline';
+    return `<div style="display:flex;align-items:center;gap:2px;">
+      <button class="nav-item${s.name === currentView ? ' active' : ''}"
+        data-server="${esc(s.name)}"
+        onclick="showView('${esc(s.name)}')"
+        style="flex:1;min-width:0;">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.name)}</span>
+        <div class="server-dot ${dotClass}"></div>
+      </button>
+      <button class="nav-open-btn" title="Open native dashboard in new tab"
+        onclick="openNativeDashboard('${esc(s.name)}')">↗</button>
+    </div>`;
+  }).join('');
+}
+
+function updateHeaderSummary() {
+  const online = servers.filter(s => s.online).length;
+  const total = servers.length;
+  document.getElementById('header-summary').textContent =
+    total === 0 ? 'no servers' : `${online}/${total} online`;
+}
+
+function renderOverview() {
+  const online = servers.filter(s => s.online).length;
+  const totalClients = servers.reduce((n, s) => n + (s.active_clients || 0), 0);
+
+  document.getElementById('s-total').textContent = servers.length;
+  document.getElementById('s-online').textContent = online;
+  document.getElementById('s-clients').textContent = totalClients;
+
+  const grid = document.getElementById('server-grid');
+  const empty = document.getElementById('overview-empty');
+
+  if (servers.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  grid.innerHTML = servers.map(s => {
+    const statusBadge = s.online
+      ? `<span class="badge badge-green">● online</span>`
+      : `<span class="badge badge-red">● offline</span>`;
+    const uptime = s.online ? fmt.uptime(s.uptime_seconds) : '—';
+    return `<div class="server-card" onclick="showView('${esc(s.name)}')">
+      <div class="server-card-top">
+        <span class="server-card-name">${esc(s.name)}</span>
+        ${statusBadge}
+      </div>
+      <div class="server-card-url">${esc(s.url)}</div>
+      <div class="server-card-meta">
+        <span><strong>${s.active_clients || 0}</strong> clients</span>
+        <span>uptime <strong>${uptime}</strong></span>
+      </div>
+      <div class="server-card-actions">
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showView('${esc(s.name)}')">
+          Manage →
+        </button>
+        <button class="server-card-remove" title="Remove server"
+          onclick="event.stopPropagation();removeServer('${esc(s.name)}')">
+          ✕
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Manual refresh ────────────────────────────────────────────────────────────
+async function manualRefresh() {
+  const icon = document.getElementById('refresh-icon');
+  const btn  = document.getElementById('refresh-btn');
+  icon.classList.add('spinning');
+  btn.disabled = true;
+  await refreshServerData();
+  icon.classList.remove('spinning');
+  btn.disabled = false;
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById('last-refreshed').textContent = 'Updated ' + now;
+}
+
+// ── Per-server data refresh ───────────────────────────────────────────────────
+async function refreshServerData() {
+  if (!currentView || currentView === 'overview') return;
+  switch (currentTab) {
+    case 'clients':   await refreshClients();   break;
+    case 'tokens':    await refreshTokens();    break;
+    case 'whitelist': await refreshWhitelist(); break;
+    case 'forwards':  await refreshForwards();  break;
+    case 'sshkeys':   await refreshSSHKeys();   break;
+  }
+  const ts = document.getElementById('last-refreshed');
+  if (ts) {
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    ts.textContent = 'Updated ' + now;
+  }
+}
+
+async function refreshClients() {
+  const { ok, data } = await srvApi('/api/clients');
+  const cls = (ok ? data.clients : null) || [];
+  document.getElementById('client-count-badge').textContent = cls.length + ' online';
+  document.getElementById('clients-body').innerHTML = cls.length === 0
+    ? '<tr class="empty-row"><td colspan="7">No clients connected</td></tr>'
+    : cls.map(c => `<tr>
+        <td><div class="name-cell">${avatar(c.name)}<strong>${esc(c.name)}</strong></div></td>
+        <td class="mono">${esc(c.ip)}</td>
+        <td>${fmt.dt(c.connected_at)}</td>
+        <td class="mono">${fmt.bytes(c.bytes_in)}</td>
+        <td class="mono">${fmt.bytes(c.bytes_out)}</td>
+        <td><span class="badge badge-green">● online</span></td>
+        <td><button class="btn btn-danger btn-sm" onclick="kickClient('${esc(c.name)}')">Kick</button></td>
+      </tr>`).join('');
+}
+
+async function refreshTokens() {
+  const { ok, data } = await srvApi('/api/tokens');
+  const tks = (ok ? data.tokens : null) || [];
+  document.getElementById('tokens-body').innerHTML = tks.length === 0
+    ? '<tr class="empty-row"><td colspan="5">No tokens</td></tr>'
+    : tks.map(t => `<tr>
+        <td><div class="name-cell">${avatar(t.name,'var(--blue-dim)','var(--blue-text)','var(--blue-border)')}<strong>${esc(t.name)}</strong></div></td>
+        <td>${fmt.dt(t.created_at)}</td>
+        <td>${t.expires_at ? fmt.dt(t.expires_at) : '<span style="color:var(--muted)">never</span>'}</td>
+        <td>${t.one_time ? '<span class="badge badge-yellow">one-time</span>' : '<span class="badge badge-blue">permanent</span>'}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="revokeToken('${esc(t.name)}')">Revoke</button></td>
+      </tr>`).join('');
+}
+
+async function refreshWhitelist() {
+  const { ok, data } = await srvApi('/api/whitelist');
+  const wl = (ok ? data.whitelist : null) || [];
+  document.getElementById('whitelist-body').innerHTML = wl.length === 0
+    ? '<tr class="empty-row"><td colspan="4">No entries</td></tr>'
+    : wl.map(e => `<tr>
+        <td><div class="name-cell">${avatar(e.name,'var(--green-dim)','var(--green-text)','var(--green-border)')}<strong>${esc(e.name)}</strong></div></td>
+        <td class="mono">${esc(e.ip)}</td>
+        <td>${fmt.dt(e.created_at)}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="removeWhitelist('${esc(e.name)}')">Remove</button></td>
+      </tr>`).join('');
+}
+
+async function refreshForwards() {
+  const { ok, data } = await srvApi('/api/forwards');
+  const fwds = (ok ? data.forwards : null) || [];
+  const bindErrs = (ok ? data.bind_errors : null) || {};
+  document.getElementById('forwards-body').innerHTML = fwds.length === 0
+    ? '<tr class="empty-row"><td colspan="5">No forwards configured</td></tr>'
+    : fwds.map(f => {
+        const err = bindErrs[String(f.listen_port)];
+        const status = err
+          ? `<span class="badge badge-red" title="${esc(err)}">⚠ bind failed</span>`
+          : `<span class="badge badge-green">● listening</span>`;
+        return `<tr>
+          <td class="mono">:${f.listen_port}</td>
+          <td class="mono">${esc(f.target)}</td>
+          <td>${status}</td>
+          <td>${fmt.dt(f.created_at)}</td>
+          <td><button class="btn btn-danger btn-sm" onclick="removeForward(${f.listen_port})">Remove</button></td>
+        </tr>`;
+      }).join('');
+}
+
+async function refreshSSHKeys() {
+  const { ok, data } = await srvApi('/api/ssh-keys');
+  const keys = (ok ? data.ssh_keys : null) || [];
+  document.getElementById('sshkeys-body').innerHTML = keys.length === 0
+    ? '<tr class="empty-row"><td colspan="3">No keys registered</td></tr>'
+    : keys.map(k => `<tr>
+        <td><div class="name-cell">${avatar(k.name,'var(--yellow-dim)','var(--yellow-text)','var(--yellow-border)')}<strong>${esc(k.name)}</strong></div></td>
+        <td>${fmt.dt(k.created_at)}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="removeSSHKey('${esc(k.name)}')">Remove</button></td>
+      </tr>`).join('');
+}
+
+// ── Server management actions ─────────────────────────────────────────────────
+async function removeServer(name) {
+  if (!confirm(`Remove server "${name}" from the hub?\n\nThis only removes it from the hub config — the server itself is not affected.`)) return;
+  const { ok, data } = await api('/api/hub/servers/' + encodeURIComponent(name), { method: 'DELETE' });
+  if (ok) {
+    toast('Server removed');
+    if (currentView === name) showView('overview');
+    refreshServerList();
+  } else {
+    toast(data.error || 'Failed to remove server', 'error');
+  }
+}
+
+function openNativeDashboard(name) {
+  window.open('/hub/open/' + encodeURIComponent(name), '_blank');
+}
+
+// ── Client actions ────────────────────────────────────────────────────────────
+async function kickClient(name) {
+  if (!confirm(`Disconnect client "${name}"?`)) return;
+  const { ok } = await srvApi('/api/clients/' + encodeURIComponent(name), { method: 'DELETE' });
+  ok ? toast('Client disconnected') : toast('Failed to disconnect', 'error');
+  refreshClients();
+}
+
+// ── Token actions ─────────────────────────────────────────────────────────────
+document.getElementById('token-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('token-name').value.trim();
+  const oneTime = document.getElementById('token-onetime').checked;
+  const { ok, data } = await srvApi('/api/tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, one_time: oneTime }),
+  });
+  const box = document.getElementById('token-result');
+  if (ok && data.token) {
+    document.getElementById('token-result-text').textContent = data.token;
+    box.style.display = 'block';
+    document.getElementById('token-name').value = '';
+    toast('Token created — copy it now');
+  } else {
+    toast(data.error || 'Failed to create token', 'error');
+  }
+  refreshTokens();
+});
+
+function copyTokenResult() {
+  const text = document.getElementById('token-result-text').textContent;
+  navigator.clipboard.writeText(text).then(() => toast('Copied to clipboard'));
+}
+
+async function revokeToken(name) {
+  if (!confirm(`Revoke token "${name}"?`)) return;
+  const { ok } = await srvApi('/api/tokens/' + encodeURIComponent(name), { method: 'DELETE' });
+  ok ? toast('Token revoked') : toast('Failed to revoke', 'error');
+  refreshTokens();
+}
+
+// ── Whitelist actions ─────────────────────────────────────────────────────────
+document.getElementById('whitelist-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('wl-name').value.trim();
+  const ip = document.getElementById('wl-ip').value.trim();
+  const errBox = document.getElementById('wl-error');
+  const { ok, data } = await srvApi('/api/whitelist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, ip }),
+  });
+  if (ok) {
+    errBox.style.display = 'none';
+    document.getElementById('wl-name').value = '';
+    document.getElementById('wl-ip').value = '';
+    toast('IP added to whitelist');
+    refreshWhitelist();
+  } else {
+    errBox.style.display = 'block';
+    errBox.textContent = data.error || 'Error';
+  }
+});
+
+async function removeWhitelist(name) {
+  if (!confirm(`Remove "${name}" from whitelist?`)) return;
+  const { ok } = await srvApi('/api/whitelist/' + encodeURIComponent(name), { method: 'DELETE' });
+  ok ? toast('Removed from whitelist') : toast('Failed to remove', 'error');
+  refreshWhitelist();
+}
+
+// ── Forward actions ───────────────────────────────────────────────────────────
+document.getElementById('forward-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const listenPort = parseInt(document.getElementById('fwd-port').value);
+  const target = document.getElementById('fwd-target').value.trim();
+  const errBox = document.getElementById('fwd-error');
+  const { ok, data } = await srvApi('/api/forwards', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ listen_port: listenPort, target }),
+  });
+  if (ok) {
+    errBox.style.display = 'none';
+    document.getElementById('fwd-port').value = '';
+    document.getElementById('fwd-target').value = '';
+    toast('Forward added');
+    refreshForwards();
+  } else {
+    errBox.style.display = 'block';
+    errBox.textContent = data.error || 'Error';
+  }
+});
+
+async function removeForward(port) {
+  if (!confirm(`Remove forward for port ${port}?`)) return;
+  const { ok } = await srvApi('/api/forwards/' + port, { method: 'DELETE' });
+  ok ? toast('Forward removed') : toast('Failed to remove', 'error');
+  refreshForwards();
+}
+
+// ── SSH key actions ───────────────────────────────────────────────────────────
+async function addSSHKey() {
+  const name = document.getElementById('sshkey-name').value.trim();
+  const pub = document.getElementById('sshkey-pub').value.trim();
+  const errBox = document.getElementById('sshkey-error');
+  if (!name || !pub) { errBox.style.display = 'block'; errBox.textContent = 'Name and public key required'; return; }
+  const { ok, data } = await srvApi('/api/ssh-keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, public_key: pub }),
+  });
+  if (ok) {
+    errBox.style.display = 'none';
+    document.getElementById('sshkey-name').value = '';
+    document.getElementById('sshkey-pub').value = '';
+    toast('SSH key registered');
+    refreshSSHKeys();
+  } else {
+    errBox.style.display = 'block';
+    errBox.textContent = data.error || 'Error';
+  }
+}
+
+async function generateSSHKey() {
+  const name = document.getElementById('sshkey-gen-name').value.trim();
+  const errBox = document.getElementById('sshkey-error');
+  if (!name) { errBox.style.display = 'block'; errBox.textContent = 'Name required'; return; }
+  const { ok, data } = await srvApi('/api/ssh-keys/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (ok && data.private_key) {
+    errBox.style.display = 'none';
+    document.getElementById('sshkey-gen-name').value = '';
+    document.getElementById('sshkey-modal-text').value = data.private_key;
+    document.getElementById('sshkey-modal').classList.add('open');
+    refreshSSHKeys();
+  } else {
+    errBox.style.display = 'block';
+    errBox.textContent = data.error || 'Error generating key';
+  }
+}
+
+async function removeSSHKey(name) {
+  if (!confirm(`Remove SSH key "${name}"?`)) return;
+  const { ok } = await srvApi('/api/ssh-keys/' + encodeURIComponent(name), { method: 'DELETE' });
+  ok ? toast('SSH key removed') : toast('Failed to remove', 'error');
+  refreshSSHKeys();
+}
+
+// ── Add Server Modal ──────────────────────────────────────────────────────────
+function openAddModal() {
+  document.getElementById('add-modal').classList.add('open');
+  showStep(1);
+  document.getElementById('add-name').value = '';
+  document.getElementById('add-url').value = '';
+  document.getElementById('add-apikey').value = '';
+  document.getElementById('add-error1').style.display = 'none';
+  document.getElementById('add-error2').style.display = 'none';
+}
+
+function closeAddModal() {
+  document.getElementById('add-modal').classList.remove('open');
+}
+
+function showStep(n) {
+  document.querySelectorAll('.modal-step').forEach((el, i) => {
+    el.classList.toggle('active', i + 1 === n);
+  });
+}
+
+async function probeServer() {
+  const url = document.getElementById('add-url').value.trim();
+  const apiKey = document.getElementById('add-apikey').value.trim();
+  const errBox = document.getElementById('add-error1');
+  const btn = document.getElementById('probe-btn');
+
+  if (!document.getElementById('add-name').value.trim()) {
+    errBox.style.display = 'block'; errBox.textContent = 'Name is required'; return;
+  }
+  if (!url) {
+    errBox.style.display = 'block'; errBox.textContent = 'URL is required'; return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Connecting...';
+  errBox.style.display = 'none';
+
+  const { ok, data } = await api('/api/hub/servers/probe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, api_key: apiKey }),
+  });
+
+  btn.disabled = false;
+  btn.innerHTML = 'Next <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>';
+
+  if (!ok || !data.reachable) {
+    errBox.style.display = 'block';
+    errBox.textContent = data.error || 'Could not reach server — check the URL and try again';
+    return;
+  }
+
+  if (!data.fingerprint) {
+    // HTTP or CA-validated cert — skip fingerprint step and add directly
+    await doAddServer('');
+    return;
+  }
+
+  document.getElementById('fp-display').textContent = data.fingerprint;
+  document.getElementById('fp-note').textContent =
+    'Compare this against the fingerprint printed by auth-vpn server install before trusting it.';
+  showStep(2);
+}
+
+async function confirmAddServer() {
+  const fp = document.getElementById('fp-display').textContent.trim();
+  await doAddServer(fp);
+}
+
+async function doAddServer(fingerprint) {
+  const name   = document.getElementById('add-name').value.trim();
+  const url    = document.getElementById('add-url').value.trim();
+  const apiKey = document.getElementById('add-apikey').value.trim();
+  const errBox = document.getElementById('add-error2');
+
+  const { ok, data } = await api('/api/hub/servers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, url, api_key: apiKey, tls_fingerprint: fingerprint }),
+  });
+
+  if (ok) {
+    closeAddModal();
+    toast(`Server "${name}" added`);
+    refreshServerList();
+  } else {
+    errBox.style.display = 'block';
+    errBox.textContent = data.error || 'Failed to add server';
+  }
+}
+
+// Close modals on overlay click
+document.getElementById('add-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeAddModal();
+});
+document.getElementById('sshkey-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) document.getElementById('sshkey-modal').classList.remove('open');
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+refreshServerList();
+setInterval(refreshServerList, 30000);
+</script>
+</body>
+</html>

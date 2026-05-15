@@ -128,6 +128,28 @@ After `server install`, a dashboard is available at `http://localhost:9100/ui`:
 
 ---
 
+## Hub dashboard
+
+Managing multiple auth-vpn servers means juggling multiple dashboards. The hub gives you a single place to manage all of them.
+
+```bash
+auth-vpn hub serve          # starts on http://127.0.0.1:9200
+auth-vpn hub serve --port 9300 --bind 0.0.0.0
+```
+
+Open `http://127.0.0.1:9200` and add servers from the UI — no YAML editing. Every change you make in the hub (tokens, clients, whitelist, forwards) goes directly to the selected server. There is no hub-side state for managed resources.
+
+```
+Hub (127.0.0.1:9200)
+  ├── prod-db        → https://10.0.0.1:9100   ● online  3 clients
+  ├── staging        → https://10.0.0.2:9100   ● online  1 client
+  └── eu-west        → https://10.0.0.4:9100   ○ offline
+```
+
+> See [docs/hub.md](docs/hub.md) for setup, TLS fingerprint handling, adding servers, and the hub API reference.
+
+---
+
 ## Server features
 
 Detailed docs for each server-side feature: [docs/server-features.md](docs/server-features.md)

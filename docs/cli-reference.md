@@ -98,6 +98,19 @@ auth-vpn profile save staging --host <server-ip>:7777 --token <token>
 auth-vpn profile list
 ```
 
+## Hub
+
+```bash
+# Start the hub dashboard (default: http://127.0.0.1:9200)
+auth-vpn hub serve
+
+# Custom port or bind address
+auth-vpn hub serve --port 9300
+auth-vpn hub serve --port 9300 --bind 0.0.0.0
+```
+
+Config is stored at `~/.auth-vpn/hub.yaml`. Add and remove servers from the UI — no manual YAML editing needed. See [hub.md](hub.md) for full documentation.
+
 ## Other
 
 ```bash
