@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,6 +13,41 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// atomicWriteFile writes data to path atomically using a temp file + rename.
+// This prevents a partially-written file being observed on crash or power loss.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".tmp-")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		// Clean up temp file on any error path.
+		if _, statErr := os.Stat(tmpName); statErr == nil {
+			os.Remove(tmpName) //nolint:errcheck
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
 
 // Token represents a stored access token (hash only — raw value never stored).
 type Token struct {
@@ -32,11 +68,17 @@ type Manager struct {
 	mu       sync.RWMutex
 	tokens   []*Token
 	filePath string
+	pepper   []byte // optional HMAC pepper; nil = fall back to plain SHA256
 }
 
 // NewManager loads tokens from filePath (creates the file if missing).
-func NewManager(filePath string) (*Manager, error) {
+// pepper should be a server-secret byte slice (e.g. 32 random bytes stored in
+// /etc/auth-vpn/token_pepper). Passing nil disables peppered hashing.
+func NewManager(filePath string, pepper ...[]byte) (*Manager, error) {
 	m := &Manager{filePath: filePath}
+	if len(pepper) > 0 && len(pepper[0]) > 0 {
+		m.pepper = pepper[0]
+	}
 	if err := m.load(); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
@@ -57,14 +99,11 @@ func (m *Manager) load() error {
 }
 
 func (m *Manager) save() error {
-	if err := os.MkdirAll(filepath.Dir(m.filePath), 0o700); err != nil {
-		return err
-	}
 	data, err := yaml.Marshal(tokensFile{Tokens: m.tokens})
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(m.filePath, data, 0o600)
+	return atomicWriteFile(m.filePath, data, 0o600)
 }
 
 // Generate creates a cryptographically random 32-char hex token string.
@@ -76,7 +115,15 @@ func Generate() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func hashToken(raw string) string {
+// hashToken returns a hex-encoded digest of raw. When a pepper is configured
+// it uses HMAC-SHA256(pepper, raw) so that stolen tokens.yaml files cannot be
+// brute-forced without also knowing the server's pepper secret.
+func (m *Manager) hashToken(raw string) string {
+	if len(m.pepper) > 0 {
+		mac := hmac.New(sha256.New, m.pepper)
+		mac.Write([]byte(raw))
+		return hex.EncodeToString(mac.Sum(nil))
+	}
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
@@ -92,7 +139,7 @@ func (m *Manager) Add(name string, expiresAt *time.Time, oneTime bool) (string, 
 	}
 	m.tokens = append(m.tokens, &Token{
 		Name:      name,
-		Hash:      hashToken(raw),
+		Hash:      m.hashToken(raw),
 		CreatedAt: time.Now().UTC(),
 		ExpiresAt: expiresAt,
 		OneTime:   oneTime,
@@ -105,7 +152,7 @@ func (m *Manager) Validate(raw string) (*Token, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	h := hashToken(raw)
+	h := m.hashToken(raw)
 	for _, t := range m.tokens {
 		if t.Hash != h {
 			continue

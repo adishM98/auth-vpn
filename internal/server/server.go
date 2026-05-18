@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/adishM98/auth-vpn/internal/audit"
 	"github.com/adishM98/auth-vpn/internal/auth"
 	"github.com/adishM98/auth-vpn/internal/server/acl"
 	"github.com/adishM98/auth-vpn/internal/tunnel"
@@ -131,12 +132,17 @@ func baseIPFromSubnet(subnet string) (string, error) {
 func New(cfg *Config) (*Server, error) {
 	cfg.applyDefaults()
 
+	// Propagate the runtime VPN subnet so probe/SSH target checks use the
+	// operator-configured range rather than the package-level default.
+	setVPNSubnet(cfg.Subnet)
+
 	baseIP, err := baseIPFromSubnet(cfg.Subnet)
 	if err != nil {
 		return nil, err
 	}
 
-	tm, err := auth.NewManager(cfg.TokensPath)
+	pepper, _ := LoadTokenPepper(TokenPepperFile)
+	tm, err := auth.NewManager(cfg.TokensPath, pepper)
 	if err != nil {
 		return nil, fmt.Errorf("load tokens: %w", err)
 	}
@@ -195,6 +201,12 @@ func (s *Server) Shutdown() {
 
 // Start creates the TUN interface, then listens for client connections.
 func (s *Server) Start() error {
+	// Initialise the audit logger — best effort, non-fatal if the path is unwritable.
+	if err := audit.Init(audit.DefaultAuditLog); err != nil {
+		log.Printf("warning: audit log unavailable (%v) — events will go to stderr", err)
+		_ = audit.Init("") // fall back to stderr
+	}
+
 	if err := tunnel.EnableForwarding(); err != nil {
 		log.Printf("warning: could not enable IP forwarding: %v", err)
 	}
@@ -291,6 +303,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	if s.limiter.IsBanned(remoteIP) {
 		log.Printf("blocked banned IP %s", remoteIP)
+		audit.Log(audit.Event{Type: audit.EventBanned, RemoteIP: remoteIP})
 		return
 	}
 
@@ -322,16 +335,28 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.limiter.RecordFailure(remoteIP)
 			s.metrics.IncAuthFailure()
 			log.Printf("auth failed from %s: %v", remoteIP, err)
+			audit.Log(audit.Event{Type: audit.EventAuthFail, RemoteIP: remoteIP, Reason: err.Error()})
+			// Return a generic message to the client to avoid leaking token state details.
 			_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
-				protocol.Encode(protocol.AuthFailResponse{Reason: err.Error()}))
+				protocol.Encode(protocol.AuthFailResponse{Reason: "authentication failed"}))
 			return
 		}
 		s.limiter.Reset(remoteIP)
 		clientName = tok.Name
+		audit.Log(audit.Event{Type: audit.EventAuthOK, RemoteIP: remoteIP, ClientName: clientName})
 	}
 
 	// Proxy mode: no TUN, no IP assignment — just TCP port forwarding.
 	if req.Mode == "proxy" {
+		// ACL check for proxy mode: use a synthetic packet representing the mode request.
+		// If the ACL engine is loaded and denies by default with no rule for this client,
+		// we honour that policy rather than silently allowing proxy access.
+		if s.acl != nil && !s.acl.AllowMode(clientName, "proxy") {
+			log.Printf("proxy mode denied by ACL for %s", clientName)
+			_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
+				protocol.Encode(protocol.AuthFailResponse{Reason: "proxy mode not permitted"}))
+			return
+		}
 		if err := tunnel.WriteFrame(conn, protocol.TypeAuthOK, protocol.Encode(protocol.AuthOKResponse{})); err != nil {
 			log.Printf("send AUTH_OK (proxy) to %s: %v", clientName, err)
 			return
@@ -375,6 +400,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.metrics.AddBytesOut(len(pkt))
 	}
 	log.Printf("client disconnected: %s", clientName)
+	audit.Log(audit.Event{Type: audit.EventDisconnect, ClientName: clientName})
 }
 
 // forwardToTUN reads IP packets from a client TCP conn and writes them to TUN.
