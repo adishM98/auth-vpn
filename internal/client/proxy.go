@@ -211,7 +211,7 @@ func (m *proxyMux) handleLocalConn(localConn net.Conn, rule ForwardRule) {
 // for each forward rule. It blocks until the tunnel is torn down.
 func ConnectProxy(opts Options, forwards []ForwardRule) error {
 	log.Printf("connecting to %s (proxy mode) ...", opts.ServerAddr)
-	conn, err := DialTLS(opts.ServerAddr, opts.Insecure)
+	conn, err := DialTLS(opts.ServerAddr, opts.Insecure, opts.ExpectFingerprint)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", opts.ServerAddr, err)
 	}

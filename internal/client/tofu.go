@@ -74,17 +74,26 @@ func isInteractive() bool {
 
 // DialTLS connects to addr with TOFU certificate pinning.
 //
-// Flow:
+// If expectFingerprint is non-empty the connection is pinned to that specific
+// fingerprint immediately — no TOFU prompt, no known_hosts lookup. This is the
+// recommended mode for CI/CD (--expect-fingerprint flag).
+//
+// Flow when expectFingerprint is empty:
 //  1. Known fingerprint in ~/.auth-vpn/known_hosts.yaml → pin verification (no CA chain).
 //  2. No known fingerprint → try full CA verification.
 //  3. CA fails with a cert error → prompt user (or auto-trust in non-interactive mode).
 //  4. Fingerprint saved; subsequent connections skip the prompt entirely.
-func DialTLS(addr string, insecure bool) (*tls.Conn, error) {
+func DialTLS(addr string, insecure bool, expectFingerprint string) (*tls.Conn, error) {
 	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
 
 	if insecure {
 		return tls.DialWithDialer(dialer, "tcp", addr,
 			&tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13}) //nolint:gosec
+	}
+
+	// Explicit fingerprint pin — skip TOFU entirely, use the supplied value.
+	if expectFingerprint != "" {
+		return tls.DialWithDialer(dialer, "tcp", addr, pinnedTLSConfig(expectFingerprint))
 	}
 
 	kh := loadKnownHosts()

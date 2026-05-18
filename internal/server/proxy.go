@@ -12,6 +12,10 @@ import (
 	"github.com/adishM98/auth-vpn/pkg/protocol"
 )
 
+// maxProxyStreams is the maximum number of concurrent proxy streams allowed per
+// client connection. This caps memory and goroutine usage per connection.
+const maxProxyStreams = 256
+
 // handleProxyConn handles a post-auth connection that requested proxy mode.
 // The client sends ProxyDial frames; we dial the target on the server's local
 // network and ferry bytes back and forth over the shared TLS connection.
@@ -48,6 +52,19 @@ func (s *Server) handleProxyConn(conn net.Conn, name string) {
 		case protocol.TypeProxyDial:
 			var req protocol.ProxyDialRequest
 			if err := protocol.Decode(payload, &req); err != nil {
+				continue
+			}
+
+			// Enforce stream cap to prevent resource exhaustion.
+			streamsMu.Lock()
+			streamCount := len(streams)
+			streamsMu.Unlock()
+			if streamCount >= maxProxyStreams {
+				log.Printf("proxy: %s stream cap reached (%d), rejecting stream %d", name, maxProxyStreams, req.StreamID)
+				writeFrame(protocol.TypeProxyFail, protocol.Encode(protocol.ProxyDialFail{
+					StreamID: req.StreamID,
+					Reason:   "stream limit reached",
+				}))
 				continue
 			}
 

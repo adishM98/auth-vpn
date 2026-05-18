@@ -1,6 +1,8 @@
 package updater
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -87,6 +89,7 @@ func Run(currentVersion string) error {
 	}
 
 	downloadURL := fmt.Sprintf("%s/%s/%s", baseURL, latest, asset)
+	checksumURL := downloadURL + ".sha256"
 	fmt.Printf("downloading      : %s\n", downloadURL)
 
 	// Find the path of the running binary.
@@ -100,6 +103,13 @@ func Run(currentVersion string) error {
 	if err := downloadFile(downloadURL, tmpPath); err != nil {
 		os.Remove(tmpPath) //nolint:errcheck
 		return err
+	}
+
+	// Fetch and verify the published SHA256 checksum.
+	fmt.Printf("verifying        : %s\n", checksumURL)
+	if err := verifyChecksum(tmpPath, checksumURL); err != nil {
+		os.Remove(tmpPath) //nolint:errcheck
+		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
@@ -154,6 +164,49 @@ func downloadFile(url, dest string) error {
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		return fmt.Errorf("write download: %w", err)
+	}
+	return nil
+}
+
+// verifyChecksum fetches the .sha256 file from checksumURL and compares it
+// against the SHA256 of the already-downloaded file at filePath.
+// The .sha256 file is expected to contain either a bare hex digest or a line
+// in the format produced by sha256sum: "<hex>  <filename>".
+func verifyChecksum(filePath, checksumURL string) error {
+	c := &http.Client{Timeout: 30 * time.Second}
+	resp, err := c.Get(checksumURL)
+	if err != nil {
+		return fmt.Errorf("fetch checksum: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("checksum URL returned %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 256))
+	if err != nil {
+		return fmt.Errorf("read checksum: %w", err)
+	}
+
+	// Accept both "abc123" and "abc123  filename" formats.
+	line := strings.TrimSpace(string(body))
+	expectedHex := strings.Fields(line)[0]
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("open binary: %w", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("hash binary: %w", err)
+	}
+	gotHex := hex.EncodeToString(h.Sum(nil))
+
+	if !strings.EqualFold(gotHex, expectedHex) {
+		return fmt.Errorf("expected %s, got %s", expectedHex, gotHex)
 	}
 	return nil
 }
