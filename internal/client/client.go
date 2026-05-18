@@ -192,6 +192,29 @@ func Connect(opts Options) error {
 		}
 	}()
 
+	// Sleep/wake detector: when the OS resumes from sleep the ticker gap
+	// exceeds the interval. Probe the connection immediately so a reaper-closed
+	// tunnel is detected without waiting up to 30s for the next keepalive tick.
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		last := time.Now()
+		for {
+			select {
+			case now := <-ticker.C:
+				if now.Sub(last) > 20*time.Second {
+					if err := tunnel.WriteFrame(conn, protocol.TypePing, nil); err != nil {
+						cancel()
+						return
+					}
+				}
+				last = now
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	// Handle OS signals for graceful disconnect.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, shutdownSignals...)

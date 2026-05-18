@@ -455,7 +455,7 @@ func (s *Server) startReaper() {
 	for {
 		select {
 		case <-ticker.C:
-			stale := s.clients.StaleConns(90 * time.Second)
+			stale := s.clients.StaleConns(3 * time.Minute)
 			for _, conn := range stale {
 				log.Printf("reaper: closing idle connection from %s", conn.RemoteAddr())
 				conn.Close()

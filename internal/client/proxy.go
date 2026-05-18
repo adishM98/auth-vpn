@@ -308,6 +308,28 @@ func ConnectProxy(opts Options, forwards []ForwardRule) error {
 		}
 	}()
 
+	// Sleep/wake detector: same logic as TUN mode — detect resume from sleep
+	// and immediately probe the connection rather than waiting for the next tick.
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		last := time.Now()
+		for {
+			select {
+			case now := <-ticker.C:
+				if now.Sub(last) > 20*time.Second {
+					if err := mux.writeFrame(protocol.TypePing, nil); err != nil {
+						cancel()
+						return
+					}
+				}
+				last = now
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, shutdownSignals...)
 	defer signal.Stop(sig)
