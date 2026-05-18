@@ -477,6 +477,7 @@ func connectCmd() *cobra.Command {
 				}
 				opts.Token = tok
 				defer revokeEphemeralToken(resolvedAPIURL, apiKey, name, insecure)
+				reconnect = false // ephemeral tokens are single-use; reconnect would reuse a revoked token
 			}
 
 			if wait {
@@ -508,7 +509,7 @@ func connectCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&background, "background", false, "Suppress interactive output and write PID state file")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until server is reachable before connecting (CI use)")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification")
-	cmd.Flags().BoolVar(&reconnect, "reconnect", false, "Auto-reconnect with exponential backoff on unexpected drop")
+	cmd.Flags().BoolVar(&reconnect, "reconnect", true, "Auto-reconnect with exponential backoff on unexpected drop; use --reconnect=false to disable")
 	cmd.Flags().StringArrayVar(&forwardRules, "forward", nil, "Forward local port to remote (localPort:remoteHost:remotePort), e.g. 5432:10.8.0.1:5432")
 	cmd.Flags().StringArrayVar(&extraRoutes, "route", nil, "Extra CIDR to route through VPN (e.g. 20.29.40.0/24). Repeatable. Docker containers on the runner benefit automatically.")
 

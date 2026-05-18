@@ -80,7 +80,7 @@ func isInteractive() bool {
 //  3. CA fails with a cert error → prompt user (or auto-trust in non-interactive mode).
 //  4. Fingerprint saved; subsequent connections skip the prompt entirely.
 func DialTLS(addr string, insecure bool) (*tls.Conn, error) {
-	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
 
 	if insecure {
 		return tls.DialWithDialer(dialer, "tcp", addr,
