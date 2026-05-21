@@ -7,39 +7,76 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/songgao/water"
+	"golang.zx2c4.com/wireguard/tun"
 )
 
-// Iface wraps a TUN interface.
+const tunMTU = 1500
+
+// Iface wraps a Wintun TUN device with a simple Read/Write/Close interface.
 type Iface struct {
-	*water.Interface
+	dev  tun.Device
+	name string
 }
 
-// NewTUN creates a TUN interface and assigns the given IP/mask.
-// ip is in CIDR notation, e.g. "10.0.0.2/24".
-func NewTUN(ip string) (*Iface, error) {
-	cfg := water.Config{DeviceType: water.TUN}
-	iface, err := water.New(cfg)
+func (i *Iface) Read(buf []byte) (int, error) {
+	bufs := [][]byte{buf}
+	sizes := []int{len(buf)}
+	n, err := i.dev.Read(bufs, sizes, 0)
 	if err != nil {
-		return nil, fmt.Errorf("create tun: %w", err)
+		return 0, err
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	return sizes[0], nil
+}
+
+func (i *Iface) Write(buf []byte) (int, error) {
+	_, err := i.dev.Write([][]byte{buf}, 0)
+	if err != nil {
+		return 0, err
+	}
+	return len(buf), nil
+}
+
+func (i *Iface) Close() error { return i.dev.Close() }
+func (i *Iface) Name() string  { return i.name }
+
+// NewTUN creates a Wintun TUN interface and assigns the given IP/mask.
+// ip is in CIDR notation, e.g. "10.0.0.2/24".
+// Requires wintun.dll alongside the executable (download from https://www.wintun.net/).
+func NewTUN(ip string) (*Iface, error) {
+	dev, err := tun.CreateTUN("auth-vpn0", tunMTU)
+	if err != nil {
+		return nil, fmt.Errorf("create tun: %w (ensure wintun.dll is in the same directory as auth-vpn.exe)", err)
 	}
 
-	// Parse IP and prefix for netsh.
+	name, err := dev.Name()
+	if err != nil {
+		dev.Close()
+		return nil, fmt.Errorf("get tun name: %w", err)
+	}
+
+	// Drain device events so the internal channel never blocks.
+	go func() {
+		for range dev.Events() {
+		}
+	}()
+
 	host, mask, err := parseCIDR(ip)
 	if err != nil {
-		_ = iface.Close()
+		dev.Close()
 		return nil, err
 	}
 
-	name := iface.Name()
 	out, err := exec.Command("netsh", "interface", "ip", "set", "address",
 		name, "static", host, mask).CombinedOutput()
 	if err != nil {
-		_ = iface.Close()
+		dev.Close()
 		return nil, fmt.Errorf("set ip (%s): %s", err, out)
 	}
 
-	return &Iface{iface}, nil
+	return &Iface{dev: dev, name: name}, nil
 }
 
 // AddRoute adds a route through the TUN interface.
