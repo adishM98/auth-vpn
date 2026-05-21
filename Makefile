@@ -1,11 +1,12 @@
-BINARY  = auth-vpn
-REPO    = adishM98/auth-vpn
-VERSION ?= 2.4.0
-DIST    = dist
-LDFLAGS = -ldflags="-s -w -X main.Version=v$(VERSION)"
+BINARY         = auth-vpn
+REPO           = adishM98/auth-vpn
+VERSION       ?= 2.4.0
+DIST           = dist
+LDFLAGS        = -ldflags="-s -w -X main.Version=v$(VERSION)"
+WINTUN_VERSION = 0.14.1
 
 .PHONY: build-linux build-mac-intel build-mac-arm build-windows build-all \
-        install install-server deploy deploy-client \
+        fetch-wintun install install-server deploy deploy-client \
         release clean
 
 # ── build ─────────────────────────────────────────────────────────────────────
@@ -25,7 +26,17 @@ build-mac-arm:
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
 	  go build $(LDFLAGS) -o $(DIST)/$(BINARY)-darwin-arm64 ./cmd
 
-build-windows:
+fetch-wintun:
+	@mkdir -p $(DIST)
+	@if [ ! -f $(DIST)/wintun-amd64.dll ]; then \
+	  echo "→ Downloading wintun $(WINTUN_VERSION) (AMD64)..."; \
+	  curl -fsSL "https://www.wintun.net/builds/wintun-$(WINTUN_VERSION).zip" -o /tmp/wintun.zip; \
+	  unzip -p /tmp/wintun.zip wintun/bin/amd64/wintun.dll > $(DIST)/wintun-amd64.dll; \
+	  rm /tmp/wintun.zip; \
+	  echo "✓ dist/wintun-amd64.dll ready"; \
+	fi
+
+build-windows: fetch-wintun
 	@mkdir -p $(DIST)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
 	  go build $(LDFLAGS) -o $(DIST)/$(BINARY)-windows-amd64.exe ./cmd
@@ -79,12 +90,14 @@ release: build-all
 	@command -v gh >/dev/null 2>&1 || { echo "Error: gh CLI not found. Install from https://cli.github.com"; exit 1; }
 	gh release create v$(VERSION) \
 	  --title "auth-vpn v$(VERSION)" \
-	  --notes "## Installation\n\n**Server (on VM with containers):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | sudo bash -s -- --server\n\`\`\`\n\n**Client (dev/QA laptop or another VM):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | sudo bash\n\`\`\`\n\nSee [INSTALL.md](https://github.com/$(REPO)/blob/main/INSTALL.md) for full setup guide." \
+	  --notes "## Installation\n\n**Server (on VM with containers):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | sudo bash -s -- --server\n\`\`\`\n\n**Client (dev/QA laptop or another VM):**\n\`\`\`bash\ncurl -fsSL https://github.com/$(REPO)/releases/latest/download/install.sh | sudo bash\n\`\`\`\n\n**Windows client (PowerShell, run as Administrator):**\n\`\`\`powershell\nirm https://github.com/$(REPO)/releases/latest/download/install.ps1 | iex\n\`\`\`\n\nSee [INSTALL.md](https://github.com/$(REPO)/blob/main/INSTALL.md) for full setup guide." \
 	  $(DIST)/$(BINARY)-linux-amd64 \
 	  $(DIST)/$(BINARY)-darwin-amd64 \
 	  $(DIST)/$(BINARY)-darwin-arm64 \
 	  $(DIST)/$(BINARY)-windows-amd64.exe \
-	  install.sh
+	  $(DIST)/wintun-amd64.dll \
+	  install.sh \
+	  install.ps1
 	@echo "✓ Released v$(VERSION)"
 	@echo "  GitHub → https://github.com/$(REPO)/releases/tag/v$(VERSION)"
 
