@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -695,32 +694,53 @@ func parseForwardRules(rules []string) ([]client.ForwardRule, error) {
 
 func disconnectCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "disconnect",
+		Use:   "disconnect [server]",
 		Short: "Disconnect a running background tunnel",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			meta, err := client.ReadMeta()
+			tunnels, err := client.ReadAllMeta()
 			if err != nil {
-				if errors.Is(err, os.ErrNotExist) {
-					fmt.Println("no running tunnel found")
-					return nil
-				}
 				return err
 			}
-			if !client.IsProcessAlive(meta.PID) {
-				fmt.Println("tunnel process is not running (stale state — cleaned up)")
-				return client.ClearMeta()
+			if len(tunnels) == 0 {
+				fmt.Println("no running tunnel found")
+				return nil
 			}
-			proc, err := os.FindProcess(meta.PID)
-			if err != nil {
-				return fmt.Errorf("find process %d: %w", meta.PID, err)
+			if len(args) == 1 {
+				target := args[0]
+				for _, m := range tunnels {
+					if m.ServerAddr == target {
+						return disconnectOne(m)
+					}
+				}
+				return fmt.Errorf("no tunnel found for server %q", target)
 			}
-			if err := proc.Signal(syscall.SIGTERM); err != nil {
-				return fmt.Errorf("signal process %d: %w", meta.PID, err)
+			if len(tunnels) > 1 {
+				fmt.Println("multiple tunnels running — specify which to disconnect:")
+				for _, m := range tunnels {
+					fmt.Printf("  auth-vpn disconnect %s\n", m.ServerAddr)
+				}
+				return nil
 			}
-			fmt.Printf("disconnected (sent SIGTERM to pid %d)\n", meta.PID)
-			return nil
+			return disconnectOne(tunnels[0])
 		},
 	}
+}
+
+func disconnectOne(meta client.TunnelMeta) error {
+	if !client.IsProcessAlive(meta.PID) {
+		fmt.Printf("tunnel to %s is not running (stale state — cleaned up)\n", meta.ServerAddr)
+		return client.ClearMeta(meta.ServerAddr)
+	}
+	proc, err := os.FindProcess(meta.PID)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", meta.PID, err)
+	}
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("signal process %d: %w", meta.PID, err)
+	}
+	fmt.Printf("disconnected %s (pid %d)\n", meta.ServerAddr, meta.PID)
+	return nil
 }
 
 // ─── status ──────────────────────────────────────────────────────────────────
@@ -730,26 +750,39 @@ func statusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show current tunnel status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			meta, err := client.ReadMeta()
+			tunnels, err := client.ReadAllMeta()
 			if err != nil {
-				if errors.Is(err, os.ErrNotExist) {
-					fmt.Println("status: not connected")
-					return nil
-				}
 				return err
 			}
-			if !client.IsProcessAlive(meta.PID) {
-				fmt.Println("status: not connected (stale state file — run 'auth-vpn disconnect' to clean up)")
+			var active []client.TunnelMeta
+			for _, m := range tunnels {
+				if client.IsProcessAlive(m.PID) {
+					active = append(active, m)
+				} else {
+					_ = client.ClearMeta(m.ServerAddr)
+				}
+			}
+			if len(active) == 0 {
+				fmt.Println("status: not connected")
 				return nil
 			}
-			uptime := time.Since(meta.ConnectedAt).Round(time.Second)
-			fmt.Println("status: connected")
-			fmt.Printf("  PID          : %d\n", meta.PID)
-			fmt.Printf("  Server       : %s\n", meta.ServerAddr)
-			fmt.Printf("  Tunnel IP    : %s\n", meta.AssignedIP)
-			fmt.Printf("  Server IP    : %s\n", meta.ServerIP)
-			fmt.Printf("  Connected at : %s\n", meta.ConnectedAt.Local().Format(time.DateTime))
-			fmt.Printf("  Uptime       : %s\n", uptime)
+			for i, meta := range active {
+				uptime := time.Since(meta.ConnectedAt).Round(time.Second)
+				if len(active) > 1 {
+					fmt.Printf("tunnel %d:\n", i+1)
+				} else {
+					fmt.Println("status: connected")
+				}
+				fmt.Printf("  Server       : %s\n", meta.ServerAddr)
+				fmt.Printf("  PID          : %d\n", meta.PID)
+				fmt.Printf("  Tunnel IP    : %s\n", meta.AssignedIP)
+				fmt.Printf("  Server IP    : %s\n", meta.ServerIP)
+				fmt.Printf("  Connected at : %s\n", meta.ConnectedAt.Local().Format(time.DateTime))
+				fmt.Printf("  Uptime       : %s\n", uptime)
+				if i < len(active)-1 {
+					fmt.Println()
+				}
+			}
 			return nil
 		},
 	}
