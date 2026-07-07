@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
 
-// TunnelMeta is written to ~/.auth-vpn/tunnel.json when a tunnel comes up
-// and deleted on clean shutdown. Used by status and disconnect commands.
+// TunnelMeta is written to ~/.auth-vpn/tunnels/<server>.json when a tunnel
+// comes up in --background mode and deleted on clean shutdown.
 type TunnelMeta struct {
 	PID         int       `json:"pid"`
 	ServerAddr  string    `json:"server_addr"`
@@ -24,12 +25,19 @@ func stateDir() string {
 	return filepath.Join(home, ".auth-vpn")
 }
 
-func metaFile() string { return filepath.Join(stateDir(), "tunnel.json") }
+func tunnelsDir() string {
+	return filepath.Join(stateDir(), "tunnels")
+}
 
-// WriteMeta atomically writes PID + connection info to disk.
-// Fills meta.PID with the current process ID.
+// tunnelFile maps a server address (host:port) to a safe filename.
+func tunnelFile(serverAddr string) string {
+	safe := strings.ReplaceAll(serverAddr, ":", "_")
+	return filepath.Join(tunnelsDir(), safe+".json")
+}
+
+// WriteMeta atomically writes PID + connection info for a specific server.
 func WriteMeta(meta TunnelMeta) error {
-	if err := os.MkdirAll(stateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(tunnelsDir(), 0o700); err != nil {
 		return err
 	}
 	meta.PID = os.Getpid()
@@ -37,30 +45,44 @@ func WriteMeta(meta TunnelMeta) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(metaFile(), data, 0o600)
+	return os.WriteFile(tunnelFile(meta.ServerAddr), data, 0o600)
 }
 
-// ReadMeta reads and decodes the tunnel metadata file.
-// Returns os.ErrNotExist if no tunnel state file is present.
-func ReadMeta() (TunnelMeta, error) {
-	data, err := os.ReadFile(metaFile())
-	if err != nil {
-		return TunnelMeta{}, err
-	}
-	var m TunnelMeta
-	if err := json.Unmarshal(data, &m); err != nil {
-		return TunnelMeta{}, err
-	}
-	return m, nil
-}
-
-// ClearMeta removes the tunnel metadata file.
-func ClearMeta() error {
-	err := os.Remove(metaFile())
+// ClearMeta removes the state file for a specific server.
+func ClearMeta(serverAddr string) error {
+	err := os.Remove(tunnelFile(serverAddr))
 	if os.IsNotExist(err) {
 		return nil
 	}
 	return err
+}
+
+// ReadAllMeta reads all tunnel state files from ~/.auth-vpn/tunnels/.
+// Returns an empty slice (not an error) when no tunnels are found.
+func ReadAllMeta() ([]TunnelMeta, error) {
+	entries, err := os.ReadDir(tunnelsDir())
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var result []TunnelMeta
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(tunnelsDir(), e.Name()))
+		if err != nil {
+			continue
+		}
+		var m TunnelMeta
+		if err := json.Unmarshal(data, &m); err != nil {
+			continue
+		}
+		result = append(result, m)
+	}
+	return result, nil
 }
 
 // IsProcessAlive returns true if the given PID is a running process.

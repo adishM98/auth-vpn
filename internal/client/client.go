@@ -125,7 +125,7 @@ func Connect(opts Options) error {
 		if err := WriteMeta(meta); err != nil {
 			log.Printf("warning: could not write tunnel state: %v", err)
 		} else {
-			defer ClearMeta() //nolint:errcheck
+			defer ClearMeta(opts.ServerAddr) //nolint:errcheck
 		}
 	} else {
 		fmt.Printf("\n✓ Connected to auth-vpn\n")

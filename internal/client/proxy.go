@@ -282,7 +282,7 @@ func ConnectProxy(opts Options, forwards []ForwardRule) error {
 		if err := WriteMeta(meta); err != nil {
 			log.Printf("warning: write tunnel state: %v", err)
 		} else {
-			defer ClearMeta() //nolint:errcheck
+			defer ClearMeta(opts.ServerAddr) //nolint:errcheck
 		}
 	} else {
 		fmt.Printf("\n✓ Connected to auth-vpn (proxy mode)\n")
