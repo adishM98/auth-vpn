@@ -77,6 +77,39 @@ func (e *Engine) Reload() error {
 	return nil
 }
 
+// AllowMode returns true if the given device is permitted to use the named
+// connection mode (e.g. "proxy", "ssh"). The ACL must have an explicit
+// allow-mode entry for the device, or the default policy must be "allow".
+func (e *Engine) AllowMode(deviceName, mode string) bool {
+	e.mu.RLock()
+	rule, hasRule := e.index[deviceName]
+	defaultAllow := e.policy.DefaultPolicy != "deny"
+	e.mu.RUnlock()
+
+	if !hasRule {
+		return defaultAllow
+	}
+
+	// Check explicit deny for the mode.
+	for _, spec := range rule.Deny {
+		if spec.Proto == mode || spec.Proto == "*" {
+			return false
+		}
+	}
+
+	// If there is an allow list, the mode must appear in it.
+	if len(rule.Allow) > 0 {
+		for _, spec := range rule.Allow {
+			if spec.Proto == mode || spec.Proto == "*" {
+				return true
+			}
+		}
+		return false
+	}
+
+	return defaultAllow
+}
+
 // Allow returns true if the given device is permitted to send pkt to the
 // server. pkt must be a valid IPv4 packet (at least 20 bytes).
 func (e *Engine) Allow(deviceName string, pkt []byte) bool {

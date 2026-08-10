@@ -260,7 +260,8 @@ func serverTokensCmd() *cobra.Command {
 }
 
 func tokenManager() (*auth.Manager, error) {
-	return auth.NewManager(server.TokensFile)
+	pepper, _ := server.LoadTokenPepper(server.TokenPepperFile)
+	return auth.NewManager(server.TokensFile, pepper)
 }
 
 func tokensListCmd() *cobra.Command {
@@ -405,7 +406,7 @@ func serverClientsCmd() *cobra.Command {
 // ─── connect ─────────────────────────────────────────────────────────────────
 
 func connectCmd() *cobra.Command {
-	var token, apiKey, apiURL string
+	var token, apiKey, apiURL, expectFingerprint string
 	var apiPort int
 	var background, wait, insecure, reconnect, githubAction bool
 	var forwardRules, extraRoutes []string
@@ -417,12 +418,13 @@ func connectCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := args[0]
 			opts := client.Options{
-				Token:       token,
-				Background:  background,
-				Wait:        wait,
-				Insecure:    insecure,
-				Reconnect:   reconnect,
-				ExtraRoutes: extraRoutes,
+				Token:             token,
+				Background:        background,
+				Wait:              wait,
+				Insecure:          insecure,
+				Reconnect:         reconnect,
+				ExtraRoutes:       extraRoutes,
+				ExpectFingerprint: expectFingerprint,
 			}
 
 			// If no token, check for a saved profile first, then try without token
@@ -512,6 +514,7 @@ func connectCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&reconnect, "reconnect", true, "Auto-reconnect with exponential backoff on unexpected drop; use --reconnect=false to disable")
 	cmd.Flags().StringArrayVar(&forwardRules, "forward", nil, "Forward local port to remote (localPort:remoteHost:remotePort), e.g. 5432:10.8.0.1:5432")
 	cmd.Flags().StringArrayVar(&extraRoutes, "route", nil, "Extra CIDR to route through VPN (e.g. 20.29.40.0/24). Repeatable. Docker containers on the runner benefit automatically.")
+	cmd.Flags().StringVar(&expectFingerprint, "expect-fingerprint", "", "Pin connection to this TLS certificate fingerprint (e.g. SHA256:...). Recommended for CI/CD to prevent TOFU downgrade attacks.")
 
 	// Hidden flags — for CI/CD use; not shown in --help.
 	cmd.Flags().BoolVar(&githubAction, "github-action", false, "Ephemeral token mode for GitHub Actions. Reads AUTH_VPN_API_KEY env var; generates a unique token per job and revokes it on disconnect.")

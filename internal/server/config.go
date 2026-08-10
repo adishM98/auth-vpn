@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	ServerConfigFile = "/etc/auth-vpn/server.yaml"
-	ACLFile          = "/etc/auth-vpn/acl.yaml"
+	ServerConfigFile   = "/etc/auth-vpn/server.yaml"
+	ACLFile            = "/etc/auth-vpn/acl.yaml"
 	DefaultMetricsAddr = "0.0.0.0:9100"
 )
 

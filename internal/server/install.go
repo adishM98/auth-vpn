@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,16 +23,17 @@ import (
 )
 
 const (
-	ConfigDir     = "/etc/auth-vpn"
-	TLSDir        = "/etc/auth-vpn/tls"
-	CertFile      = "/etc/auth-vpn/tls/cert.pem"
-	KeyFile       = "/etc/auth-vpn/tls/key.pem"
-	TokensFile    = "/etc/auth-vpn/tokens.yaml"
-	WhitelistFile = "/etc/auth-vpn/whitelist.json"
-	ForwardsFile  = "/etc/auth-vpn/forwards.json"
-	SSHKeysFile   = "/etc/auth-vpn/ssh_keys.json"
-	ServiceFile   = "/etc/systemd/system/auth-vpn.service"
-	SocketFile    = "/var/run/auth-vpn.sock"
+	ConfigDir      = "/etc/auth-vpn"
+	TLSDir         = "/etc/auth-vpn/tls"
+	CertFile       = "/etc/auth-vpn/tls/cert.pem"
+	KeyFile        = "/etc/auth-vpn/tls/key.pem"
+	TokensFile     = "/etc/auth-vpn/tokens.yaml"
+	TokenPepperFile = "/etc/auth-vpn/token_pepper" // server-secret HMAC pepper for token hashing
+	WhitelistFile  = "/etc/auth-vpn/whitelist.json"
+	ForwardsFile   = "/etc/auth-vpn/forwards.json"
+	SSHKeysFile    = "/etc/auth-vpn/ssh_keys.json"
+	ServiceFile    = "/etc/systemd/system/auth-vpn.service"
+	SocketFile     = "/var/run/auth-vpn.sock"
 )
 
 // Install sets up the server: TLS cert, initial token, server.yaml, acl.yaml, systemd service.
@@ -56,7 +58,15 @@ func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 		}
 	}
 
-	tm, err := auth.NewManager(TokensFile)
+	// Generate a token pepper on fresh install (never overwrites existing one).
+	if _, statErr := os.Stat(TokenPepperFile); os.IsNotExist(statErr) {
+		if pepperErr := generateTokenPepper(TokenPepperFile); pepperErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: generate token pepper: %v\n", pepperErr)
+		}
+	}
+
+	pepper, _ := LoadTokenPepper(TokenPepperFile)
+	tm, err := auth.NewManager(TokensFile, pepper)
 	if err != nil {
 		return "", "", "", fmt.Errorf("token manager: %w", err)
 	}
@@ -118,7 +128,49 @@ func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 		err = nil
 	}
 
+	// Create dedicated system user if not present and chown config directory.
+	ensureServiceUser()
+
 	return publicIP, rawToken, apiKey, nil
+}
+
+// ensureServiceUser creates the auth-vpn system user/group if they don't exist
+// and sets ownership of /etc/auth-vpn so the service can read its config.
+func ensureServiceUser() {
+	// Only attempt on Linux where useradd/groupadd are standard.
+	if _, err := exec.LookPath("useradd"); err != nil {
+		return
+	}
+	// Create group (ignore error if already exists).
+	exec.Command("groupadd", "--system", "auth-vpn").Run() //nolint:errcheck
+	// Create user (ignore error if already exists).
+	exec.Command("useradd", "--system", "--no-create-home",
+		"--shell", "/usr/sbin/nologin",
+		"--gid", "auth-vpn",
+		"auth-vpn").Run() //nolint:errcheck
+	// Transfer ownership of config directory.
+	exec.Command("chown", "-R", "auth-vpn:auth-vpn", ConfigDir).Run() //nolint:errcheck
+	// The audit log dir must also be writable by the service user.
+	exec.Command("install", "-d", "-o", "auth-vpn", "-g", "auth-vpn", "-m", "0750", "/var/log").Run() //nolint:errcheck
+}
+
+// generateTokenPepper creates a 32-byte random pepper and writes it to path.
+func generateTokenPepper(path string) error {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o600)
+}
+
+// LoadTokenPepper reads the raw pepper bytes from path.
+// Returns nil bytes (no error) when the file does not exist — pepper is optional.
+func LoadTokenPepper(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	return data, err
 }
 
 func generateAPIKey() (string, error) {
@@ -231,7 +283,27 @@ After=network.target
 ExecStart=%s server start --port %d
 Restart=always
 RestartSec=5
-User=root
+
+# Run as a dedicated non-root user with only the capabilities required for TUN.
+User=auth-vpn
+Group=auth-vpn
+# CAP_NET_ADMIN: create/configure TUN interfaces.
+# CAP_NET_BIND_SERVICE: bind privileged ports if needed.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+
+# Harden the service environment.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/auth-vpn /var/run /var/log
+ProtectHome=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target

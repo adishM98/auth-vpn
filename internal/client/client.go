@@ -23,13 +23,14 @@ const tunBufSize = 65535
 
 // Options controls how the client connects.
 type Options struct {
-	ServerAddr  string // "host:port"
-	Token       string
-	Background  bool     // suppress interactive output, write PID state file
-	Wait        bool     // block until tunnel verified before returning
-	Insecure    bool     // skip TLS cert verification (dev only)
-	Reconnect   bool     // auto-reconnect with exponential backoff on unexpected drop
-	ExtraRoutes []string // additional CIDRs to route via VPN beyond the assigned subnet
+	ServerAddr        string // "host:port"
+	Token             string
+	Background        bool     // suppress interactive output, write PID state file
+	Wait              bool     // block until tunnel verified before returning
+	Insecure          bool     // skip TLS cert verification (dev only)
+	Reconnect         bool     // auto-reconnect with exponential backoff on unexpected drop
+	ExtraRoutes       []string // additional CIDRs to route via VPN beyond the assigned subnet
+	ExpectFingerprint string   // if non-empty, pin to this fingerprint instead of TOFU
 }
 
 // Profile is a saved connection profile (stored in ~/.auth-vpn/profiles.yaml).
@@ -43,7 +44,7 @@ type Profile struct {
 // then forwards all traffic. Blocks until the tunnel is torn down.
 func Connect(opts Options) error {
 	log.Printf("connecting to %s ...", opts.ServerAddr)
-	conn, err := DialTLS(opts.ServerAddr, opts.Insecure)
+	conn, err := DialTLS(opts.ServerAddr, opts.Insecure, opts.ExpectFingerprint)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", opts.ServerAddr, err)
 	}

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adishM98/auth-vpn/internal/audit"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -40,9 +41,11 @@ func (s *Server) startSSHServer() {
 			if err != nil {
 				s.limiter.RecordFailure(remoteIP)
 				s.metrics.IncAuthFailure()
+				audit.Log(audit.Event{Type: audit.EventAuthFail, RemoteIP: remoteIP, Method: "ssh-password", Reason: "invalid token"})
 				return nil, fmt.Errorf("invalid token")
 			}
 			s.limiter.Reset(remoteIP)
+			audit.Log(audit.Event{Type: audit.EventAuthOK, RemoteIP: remoteIP, ClientName: tok.Name, Method: "ssh-password"})
 			return &ssh.Permissions{
 				Extensions: map[string]string{"name": tok.Name},
 			}, nil
@@ -54,6 +57,7 @@ func (s *Server) startSSHServer() {
 			// Check auth-vpn managed keys first.
 			if name, ok := s.sshKeys.FindKey(key); ok {
 				s.limiter.Reset(remoteIP)
+				audit.Log(audit.Event{Type: audit.EventAuthOK, RemoteIP: remoteIP, ClientName: name, Method: "ssh-pubkey"})
 				return &ssh.Permissions{
 					Extensions: map[string]string{"name": name},
 				}, nil
@@ -62,12 +66,14 @@ func (s *Server) startSSHServer() {
 			// this host as the given user is trusted for tunneling too.
 			if checkSystemAuthorizedKeys(key, c.User()) {
 				s.limiter.Reset(remoteIP)
+				audit.Log(audit.Event{Type: audit.EventAuthOK, RemoteIP: remoteIP, ClientName: c.User(), Method: "ssh-syskey"})
 				return &ssh.Permissions{
 					Extensions: map[string]string{"name": c.User()},
 				}, nil
 			}
 			s.limiter.RecordFailure(remoteIP)
 			s.metrics.IncAuthFailure()
+			audit.Log(audit.Event{Type: audit.EventAuthFail, RemoteIP: remoteIP, Method: "ssh-pubkey", Reason: "unauthorized key"})
 			return nil, fmt.Errorf("unauthorized key")
 		},
 	}
@@ -95,8 +101,14 @@ func (s *Server) startSSHServer() {
 	}
 }
 
+const sshIdleTimeout = 30 * time.Minute
+
 func (s *Server) handleSSHConn(conn net.Conn, cfg *ssh.ServerConfig) {
 	defer conn.Close()
+
+	// Enforce a hard idle timeout: if no channel activity is seen within the
+	// window the underlying TCP connection is closed, preventing zombie sessions.
+	conn.SetDeadline(time.Now().Add(sshIdleTimeout)) //nolint:errcheck
 
 	sshConn, chans, reqs, err := ssh.NewServerConn(conn, cfg)
 	if err != nil {
@@ -111,6 +123,8 @@ func (s *Server) handleSSHConn(conn net.Conn, cfg *ssh.ServerConfig) {
 	go ssh.DiscardRequests(reqs)
 
 	for newChan := range chans {
+		// Reset the idle deadline on each new channel to keep active sessions alive.
+		conn.SetDeadline(time.Now().Add(sshIdleTimeout)) //nolint:errcheck
 		if newChan.ChannelType() != "direct-tcpip" {
 			newChan.Reject(ssh.UnknownChannelType, "only direct-tcpip forwarding supported")
 			continue
@@ -208,7 +222,7 @@ func isAllowedSSHTarget(host string) bool {
 	if ip == nil {
 		return false
 	}
-	return localhostNet.Contains(ip) || vpnSubnet.Contains(ip)
+	return localhostNet.Contains(ip) || getVPNSubnet().Contains(ip)
 }
 
 // isSafeUsername returns true if username is safe to interpolate into a file path.

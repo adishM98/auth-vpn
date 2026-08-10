@@ -1,12 +1,16 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/adishM98/auth-vpn/internal/audit"
 )
 
 // startHTTPAPI starts the HTTP listener for metrics, health, API, Web UI, and plugin routes.
@@ -329,27 +333,46 @@ func (s *Server) handleAPISSHKeysDelete(w http.ResponseWriter, r *http.Request) 
 }
 
 // withAuth wraps a handler to require API key authentication when APIKey is set.
+// It also sets security headers on every response and emits an audit event for
+// state-changing (non-GET) admin API requests.
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		setSecurityHeaders(w)
 		if !s.checkAPIKey(w, r) {
 			return
+		}
+		// Audit all mutating admin API requests.
+		if r.Method != http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/") {
+			remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+			audit.Log(audit.Event{
+				Type:     audit.EventAdminAPI,
+				RemoteIP: remoteIP,
+				Method:   r.Method,
+				Path:     r.URL.Path,
+			})
 		}
 		next(w, r)
 	}
 }
 
+// setSecurityHeaders adds defensive HTTP response headers.
+func setSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+}
+
 // checkAPIKey returns true if the request is authorized. When APIKey is empty,
 // all requests are allowed (open mode — suitable for internal-only deployments).
+// Uses constant-time comparison to prevent timing attacks.
 func (s *Server) checkAPIKey(w http.ResponseWriter, r *http.Request) bool {
 	if s.cfg.APIKey == "" {
 		return true
 	}
-	// Accept Bearer token in Authorization header or ?key= query param (for browser direct access).
-	auth := r.Header.Get("Authorization")
-	if strings.TrimPrefix(auth, "Bearer ") == s.cfg.APIKey {
-		return true
-	}
-	if r.URL.Query().Get("key") == s.cfg.APIKey {
+	// Accept Bearer token in Authorization header only.
+	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if subtle.ConstantTimeCompare([]byte(auth), []byte(s.cfg.APIKey)) == 1 {
 		return true
 	}
 	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
