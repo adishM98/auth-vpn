@@ -123,6 +123,28 @@ kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_PUSH_ROUTES=10.0.0.0/16,10.
 
 ---
 
+## Put only some services behind auth-vpn
+
+You don't have to move everything. A common setup: make **one** service private (for example Grafana) and leave the others (app LoadBalancers) public as they are.
+
+1. **Make that service private.** Switching it to ClusterIP keeps the same ClusterIP and releases its public IP. The other services are untouched:
+   ```bash
+   kubectl patch svc grafana-lb --type=json -p '[
+     {"op":"replace","path":"/spec/type","value":"ClusterIP"},
+     {"op":"remove","path":"/spec/ports/0/nodePort"}]'
+   ```
+   Add `--dry-run=server` first to preview the change.
+2. **Push only that service's route.** Set this on the auth-vpn Deployment, so clients route just that `/32` instead of the whole service CIDR:
+   ```bash
+   kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_PUSH_ROUTES=10.0.238.163/32
+   ```
+   Split DNS is still pushed, so `grafana-lb.default.svc.cluster.local` resolves (kube-dns gets its own `/32`). Traffic to every other IP, including the other services' public LoadBalancers, stays off the tunnel.
+3. **Connect and open it:** `sudo auth-vpn connect <LB-IP>:7777 -t <token>`, then browse to `http://grafana-lb.default.svc.cluster.local`.
+
+> **Route scoping is not access control.** Pushed routes decide what a client sends through the tunnel *by default*. A token holder can still add `--route 10.0.0.0/16`, or use proxy mode, to reach other ClusterIPs. To actually *restrict* what the pod can reach, use a NetworkPolicy on the auth-vpn pod that allows egress only to the Grafana pods and kube-dns. That only works if the cluster enforces NetworkPolicy: on AKS, check that `az aks show -n <cluster> -g <rg> --query networkProfile.networkPolicy` is not `none`.
+
+---
+
 ## Step 4 — Use services by name
 
 ```bash
