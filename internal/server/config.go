@@ -4,6 +4,8 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/adishM98/auth-vpn/pkg/protocol"
 )
 
 const (
@@ -22,6 +24,10 @@ type ServerConfig struct {
 	APIKey          string `yaml:"api_key,omitempty"`
 	ForwardBindAddr string `yaml:"forward_bind_addr,omitempty"` // IP to bind direct-forward listeners (empty = 0.0.0.0)
 	SSHAddr         string `yaml:"ssh_addr,omitempty"`          // embedded SSH server address, e.g. ":2222"
+
+	PushRoutes []string            `yaml:"push_routes,omitempty"` // CIDRs pushed to TUN clients (k8s: auto-detected when empty)
+	PushDNS    *protocol.DNSConfig `yaml:"push_dns,omitempty"`    // split DNS pushed to TUN clients (k8s: auto-detected when empty)
+	NoPush     bool                `yaml:"no_push,omitempty"`     // disable route/DNS push and auto-detection
 }
 
 // DefaultServerConfig returns a ServerConfig with sensible defaults.

@@ -30,6 +30,9 @@ type Options struct {
 	Insecure    bool     // skip TLS cert verification (dev only)
 	Reconnect   bool     // auto-reconnect with exponential backoff on unexpected drop
 	ExtraRoutes []string // additional CIDRs to route via VPN beyond the assigned subnet
+
+	NoPushRoutes bool // ignore routes pushed by the server
+	NoPushDNS    bool // ignore split DNS pushed by the server
 }
 
 // Profile is a saved connection profile (stored in ~/.auth-vpn/profiles.yaml).
@@ -112,6 +115,40 @@ func Connect(opts Options) error {
 		}
 	}
 
+	// Server-pushed routes and split DNS (e.g. a cluster's service CIDR and
+	// kube-dns). Filtered client-side so a server can't hijack unrelated traffic.
+	srvIP := serverIP(opts.ServerAddr)
+	var pushedRoutes, dnsDomains []string
+	if !opts.NoPushRoutes {
+		pushedRoutes = safeRoutes(resp.Routes, srvIP)
+	}
+	if resp.DNS != nil && !opts.NoPushDNS {
+		for _, d := range resp.DNS.Domains {
+			if validDNSDomain(d) {
+				dnsDomains = append(dnsDomains, d)
+			} else {
+				log.Printf("ignoring pushed DNS domain %q", d)
+			}
+		}
+		// The DNS server itself must be reachable through the tunnel.
+		dnsRoute := safeRoutes([]string{resp.DNS.Server + "/32"}, srvIP)
+		if len(dnsDomains) > 0 && len(dnsRoute) == 1 {
+			pushedRoutes = append(pushedRoutes, dnsRoute...)
+		} else {
+			dnsDomains = nil
+		}
+	}
+	for _, cidr := range pushedRoutes {
+		if err := tunnel.AddRoute(cidr, ifaceName); err != nil {
+			log.Printf("warning: add pushed route %s: %v", cidr, err)
+		} else {
+			defer tunnel.DelRoute(cidr) //nolint:errcheck
+		}
+	}
+	if len(dnsDomains) > 0 {
+		defer applyDNS(ifaceName, resp.DNS.Server, dnsDomains)()
+	}
+
 	log.Printf("tunnel up — route %s via %s", resp.Subnet, ifaceName)
 
 	if opts.Background {
@@ -134,6 +171,12 @@ func Connect(opts Options) error {
 		fmt.Printf("  Subnet    : %s\n", resp.Subnet)
 		for _, cidr := range opts.ExtraRoutes {
 			fmt.Printf("  Route     : %s → VPN\n", cidr)
+		}
+		for _, cidr := range pushedRoutes {
+			fmt.Printf("  Route     : %s → VPN (pushed by server)\n", cidr)
+		}
+		for _, d := range dnsDomains {
+			fmt.Printf("  DNS       : *.%s → %s\n", d, resp.DNS.Server)
 		}
 		fmt.Println()
 	}

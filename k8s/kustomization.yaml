@@ -1,0 +1,7 @@
+# Lets the manifests be applied straight from GitHub:
+#   kubectl create namespace auth-vpn
+#   kubectl apply -n auth-vpn -k "github.com/adishM98/auth-vpn/k8s?ref=main"
+resources:
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml

@@ -56,6 +56,16 @@ type AuthOKResponse struct {
 	ClientIP string `json:"client_ip"` // e.g. "10.0.0.2"
 	ServerIP string `json:"server_ip"` // e.g. "10.0.0.1"
 	Subnet   string `json:"subnet"`    // e.g. "10.0.0.0/24"
+
+	// Optional — omitted by older servers, ignored by older clients.
+	Routes []string   `json:"routes,omitempty"` // extra CIDRs the client should route via the tunnel
+	DNS    *DNSConfig `json:"dns,omitempty"`    // split DNS: resolve Domains via Server through the tunnel
+}
+
+// DNSConfig tells the client to send lookups for Domains to Server.
+type DNSConfig struct {
+	Server  string   `json:"server" yaml:"server"`   // e.g. "10.0.0.10" (kube-dns)
+	Domains []string `json:"domains" yaml:"domains"` // e.g. ["cluster.local"]
 }
 
 // AuthFailResponse is the JSON payload for TypeAuthFail.

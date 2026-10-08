@@ -56,6 +56,11 @@ type Config struct {
 	ForwardBindAddr string // IP to bind direct-forward listeners to; empty = 0.0.0.0 (all interfaces)
 	SSHAddr         string // address for embedded SSH server, e.g. ":2222"; empty = disabled
 
+	// Pushed to TUN clients in AUTH_OK. Auto-detected inside Kubernetes when empty.
+	PushRoutes []string
+	PushDNS    *protocol.DNSConfig
+	NoPush     bool // disable pushing (and auto-detection) entirely
+
 	// UIOnly runs the HTTP API/dashboard only — no TUN, no IP forwarding, no TLS
 	// tunnel listener, no control socket, no SSH server. Lets the dashboard be
 	// reviewed locally without root or a real deployment.
@@ -79,6 +84,7 @@ func (cfg *Config) applyDefaults() {
 		cfg.SSHAddr = ":2222"
 	}
 	cfg.persistAutoDefaults()
+	cfg.resolvePush()
 }
 
 // outboundIP returns the local IP the OS would use for outbound traffic.
@@ -372,6 +378,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		ClientIP: client.ip,
 		ServerIP: s.cfg.ServerIP,
 		Subnet:   s.cfg.Subnet,
+		Routes:   s.cfg.PushRoutes,
+		DNS:      s.cfg.PushDNS,
 	}
 	if err := client.writeFrame(protocol.TypeAuthOK, protocol.Encode(resp)); err != nil {
 		log.Printf("send AUTH_OK to %s: %v", clientName, err)
