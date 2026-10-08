@@ -28,6 +28,7 @@ type ServerConfig struct {
 	PushRoutes []string            `yaml:"push_routes,omitempty"` // CIDRs pushed to TUN clients (k8s: auto-detected when empty)
 	PushDNS    *protocol.DNSConfig `yaml:"push_dns,omitempty"`    // split DNS pushed to TUN clients (k8s: auto-detected when empty)
 	NoPush     bool                `yaml:"no_push,omitempty"`     // disable route/DNS push and auto-detection
+	Expose     string              `yaml:"expose,omitempty"`      // "all" (default) or "labeled": only Services labelled auth-vpn.io/expose=true are reachable
 }
 
 // DefaultServerConfig returns a ServerConfig with sensible defaults.

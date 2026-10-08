@@ -13,6 +13,14 @@ import (
 // in AUTH_OK. Precedence per field: server.yaml > AUTH_VPN_PUSH_ROUTES env
 // (routes only) > Kubernetes auto-detection. NoPush turns all of it off.
 func (cfg *Config) resolvePush() {
+	if cfg.Expose == "" {
+		cfg.Expose = os.Getenv("AUTH_VPN_EXPOSE")
+	}
+	resolvConf, _ := os.ReadFile("/etc/resolv.conf")
+	routes, dns := k8sPush(string(resolvConf), os.Getenv("KUBERNETES_SERVICE_HOST"))
+	if dns != nil {
+		cfg.clusterDNS = dns.Server // labeled mode always allows DNS, even with no_push
+	}
 	if cfg.NoPush {
 		cfg.PushRoutes, cfg.PushDNS = nil, nil
 		return
@@ -26,9 +34,9 @@ func (cfg *Config) resolvePush() {
 			}
 		}
 	}
-	resolvConf, _ := os.ReadFile("/etc/resolv.conf")
-	routes, dns := k8sPush(string(resolvConf), os.Getenv("KUBERNETES_SERVICE_HOST"))
-	if len(cfg.PushRoutes) == 0 && routes != nil {
+	// In labeled mode the routes are the exposed Services' /32s (pushRoutes),
+	// not the whole-range guess.
+	if len(cfg.PushRoutes) == 0 && routes != nil && cfg.Expose != ExposeLabeled {
 		cfg.PushRoutes = routes
 		log.Printf("kubernetes: guessed service CIDR %v — set AUTH_VPN_PUSH_ROUTES or push_routes in server.yaml if wrong", routes)
 	}

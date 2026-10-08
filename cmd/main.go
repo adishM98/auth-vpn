@@ -236,7 +236,7 @@ func serverStartCmd() *cobra.Command {
 				if !cmd.Flags().Changed("ssh-addr") {
 					cfg.SSHAddr = sc.SSHAddr
 				}
-				cfg.PushRoutes, cfg.PushDNS, cfg.NoPush = sc.PushRoutes, sc.PushDNS, sc.NoPush
+				cfg.PushRoutes, cfg.PushDNS, cfg.NoPush, cfg.Expose = sc.PushRoutes, sc.PushDNS, sc.NoPush, sc.Expose
 			}
 			// Apply explicit flag overrides.
 			if cmd.Flags().Changed("subnet") {

@@ -25,6 +25,7 @@ sudo auth-vpn server start --acl /etc/auth-vpn/acl.yaml
 #   push_routes: [10.0.0.0/16]
 #   push_dns: {server: 10.0.0.10, domains: [cluster.local]}
 #   no_push: true            # disable pushing + auto-detection
+#   expose: labeled          # only Services labelled auth-vpn.io/expose=true are reachable (env: AUTH_VPN_EXPOSE)
 
 # See who is currently connected
 sudo auth-vpn server clients

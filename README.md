@@ -253,8 +253,7 @@ Your laptop  ──TLS──►  auth-vpn LoadBalancer  ──►  ClusterIP ser
 **Quick start:**
 
 ```bash
-kubectl create namespace auth-vpn
-kubectl apply -n auth-vpn -k "github.com/adishM98/auth-vpn/k8s?ref=main"
+kubectl apply -k "github.com/adishM98/auth-vpn/k8s?ref=main"
 kubectl logs -n auth-vpn deploy/auth-vpn          # admin token
 kubectl get svc -n auth-vpn auth-vpn               # LoadBalancer IP
 
@@ -263,6 +262,8 @@ psql -h postgres.myns.svc.cluster.local            # service DNS works through t
 ```
 
 The server auto-detects the cluster's service CIDR and DNS and pushes both to clients — no `--route` flags, no VNet peering.
+
+Want only some Services reachable? Set `AUTH_VPN_EXPOSE=labeled` and label them `auth-vpn.io/expose=true`. The server then pushes and allows just those, on any cluster, with no NetworkPolicy needed. See [Put only some services behind auth-vpn](docs/k8s-deployment.md#put-only-some-services-behind-auth-vpn-labeled-mode).
 
 > See [docs/k8s-deployment.md](docs/k8s-deployment.md) for the full guide — namespace setup, image registry options, connecting from a laptop or CI, token management, and troubleshooting.
 

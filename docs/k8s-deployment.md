@@ -67,11 +67,10 @@ No image build needed — every release publishes a multi-arch (amd64 + arm64) i
 ## Step 1 — Deploy
 
 ```bash
-kubectl create namespace auth-vpn
-kubectl apply -n auth-vpn -k "github.com/adishM98/auth-vpn/k8s?ref=main"
+kubectl apply -k "github.com/adishM98/auth-vpn/k8s?ref=main"
 ```
 
-Or from a clone: `kubectl apply -n auth-vpn -f k8s/`. The manifests carry no hard-coded namespace, so `-n` decides where they land.
+This creates the `auth-vpn` namespace, a ServiceAccount with read-only access to Services (used by labeled expose mode, below), the PVC, the Deployment and the LoadBalancer Service. From a clone: `kubectl apply -k k8s/`. For another namespace, write a small overlay that sets `namespace:` and points at this directory.
 
 The PVC (1 GiB) persists the TLS cert, tokens and `server.yaml` across pod restarts — your laptop won't be asked to re-trust the server and tokens stay valid.
 
@@ -123,25 +122,44 @@ kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_PUSH_ROUTES=10.0.0.0/16,10.
 
 ---
 
-## Put only some services behind auth-vpn
+## Put only some services behind auth-vpn (labeled mode)
 
-You don't have to move everything. A common setup: make **one** service private (for example Grafana) and leave the others (app LoadBalancers) public as they are.
+By default, everything the pod can reach is reachable through the tunnel. To expose **only chosen Services**, for example Grafana, while every other Service stays exactly as it is, switch to labeled mode:
 
-1. **Make that service private.** Switching it to ClusterIP keeps the same ClusterIP and releases its public IP. The other services are untouched:
-   ```bash
-   kubectl patch svc grafana-lb --type=json -p '[
-     {"op":"replace","path":"/spec/type","value":"ClusterIP"},
-     {"op":"remove","path":"/spec/ports/0/nodePort"}]'
-   ```
-   Add `--dry-run=server` first to preview the change.
-2. **Push only that service's route.** Set this on the auth-vpn Deployment, so clients route just that `/32` instead of the whole service CIDR:
-   ```bash
-   kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_PUSH_ROUTES=10.0.238.163/32
-   ```
-   Split DNS is still pushed, so `grafana-lb.default.svc.cluster.local` resolves (kube-dns gets its own `/32`). Traffic to every other IP, including the other services' public LoadBalancers, stays off the tunnel.
-3. **Connect and open it:** `sudo auth-vpn connect <LB-IP>:7777 -t <token>`, then browse to `http://grafana-lb.default.svc.cluster.local`.
+```bash
+# 1. turn it on (server-wide)
+kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_EXPOSE=labeled
 
-> **Route scoping is not access control.** Pushed routes decide what a client sends through the tunnel *by default*. A token holder can still add `--route 10.0.0.0/16`, or use proxy mode, to reach other ClusterIPs. To actually *restrict* what the pod can reach, use a NetworkPolicy on the auth-vpn pod that allows egress only to the Grafana pods and kube-dns. That only works if the cluster enforces NetworkPolicy: on AKS, check that `az aks show -n <cluster> -g <rg> --query networkProfile.networkPolicy` is not `none`.
+# 2. opt Services in, in any namespace
+kubectl label svc grafana-lb -n default auth-vpn.io/expose=true
+```
+
+What changes:
+
+| | Default (`all`) | `labeled` |
+|---|---|---|
+| Routes pushed to clients | the whole service CIDR (guessed) | one `/32` per labelled Service |
+| What the server forwards (TUN) | anything | only TCP/UDP to a labelled Service's ClusterIP **and** port, plus cluster DNS on 53 |
+| Proxy mode (`--forward`) | dials anything | only labelled Services. Names are resolved in the pod, and the checked IP is the one dialed |
+| Unlabelled Services | reachable | dropped, even if a client adds `--route` |
+
+- **Enforced by auth-vpn itself.** No NetworkPolicy or policy engine is needed, so it works on any cluster, including ones where `networkPolicy` is `none`.
+- **Kept up to date.** The pod re-lists labelled Services every 30 s (via the `auth-vpn-read-services` ClusterRole in `k8s/rbac.yaml`). New labels are enforced within 30 s. Clients get new routes on their next reconnect.
+- **Fail closed.** If the API is unreachable, the last good list is kept. Before the first successful list, only cluster DNS is allowed.
+- **Not covered:**
+  - Headless Services (no ClusterIP)
+  - ICMP and non-first IP fragments, which are dropped
+  - Direct forwards and the SSH server, which the admin configures separately
+
+Labelling doesn't change the Service itself. If it should no longer be public, make it ClusterIP-only yourself (it keeps the same ClusterIP):
+
+```bash
+kubectl patch svc grafana-lb -n default --type=json -p '[
+  {"op":"replace","path":"/spec/type","value":"ClusterIP"},
+  {"op":"remove","path":"/spec/ports/0/nodePort"}]'
+```
+
+Add `--dry-run=server` first to preview it. Then connect and open `http://grafana-lb.default.svc.cluster.local`.
 
 ---
 
