@@ -142,6 +142,7 @@ What changes:
 | What the server forwards (TUN) | anything | only TCP/UDP to a labelled Service's ClusterIP **and** port, plus cluster DNS on 53 |
 | Proxy mode (`--forward`) | dials anything | only labelled Services. Names are resolved in the pod, and the checked IP is the one dialed |
 | Unlabelled Services | reachable | dropped, even if a client adds `--route` |
+| auth-vpn's own dashboard | `http://10.8.0.1:9100/ui` over the VPN | still reachable at `http://10.8.0.1:9100/ui` over the VPN (port 9100 only; API key still required) |
 
 - **Enforced by auth-vpn itself.** No NetworkPolicy or policy engine is needed, so it works on any cluster, including ones where `networkPolicy` is `none`.
 - **Kept up to date.** The pod re-lists labelled Services every 30 s (via the `auth-vpn-read-services` ClusterRole in `k8s/rbac.yaml`). New labels are enforced within 30 s. Clients get new routes on their next reconnect.
