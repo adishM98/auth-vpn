@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: auth-vpn
-  namespace: default  # change to your namespace
 spec:
   replicas: 1
   selector:
@@ -13,13 +12,22 @@ spec:
       labels:
         app: auth-vpn
     spec:
+      serviceAccountName: auth-vpn
       containers:
         - name: auth-vpn
-          image: <your-registry>/auth-vpn:latest  # replace with your image after: docker build + push
+          image: ghcr.io/adishm98/auth-vpn:latest
           imagePullPolicy: Always
           env:
             - name: AUTH_VPN_PORT
               value: "7777"  # change if 7777 is taken; update the ports below to match
+            # Service CIDR pushed to clients. Auto-guessed from inside the pod
+            # (/16 around the API server's ClusterIP); set it if the guess is wrong.
+            # - name: AUTH_VPN_PUSH_ROUTES
+            #   value: "10.0.0.0/16"
+            # Only make Services labelled auth-vpn.io/expose=true reachable (enforced
+            # by the server, no NetworkPolicy needed). Default "all" = whole cluster.
+            # - name: AUTH_VPN_EXPOSE
+            #   value: "labeled"
           ports:
             - name: vpn
               containerPort: 7777

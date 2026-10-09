@@ -236,6 +236,7 @@ func serverStartCmd() *cobra.Command {
 				if !cmd.Flags().Changed("ssh-addr") {
 					cfg.SSHAddr = sc.SSHAddr
 				}
+				cfg.PushRoutes, cfg.PushDNS, cfg.NoPush, cfg.Expose = sc.PushRoutes, sc.PushDNS, sc.NoPush, sc.Expose
 			}
 			// Apply explicit flag overrides.
 			if cmd.Flags().Changed("subnet") {
@@ -437,7 +438,7 @@ func serverClientsCmd() *cobra.Command {
 func connectCmd() *cobra.Command {
 	var token, apiKey, apiURL string
 	var apiPort int
-	var background, wait, insecure, reconnect, githubAction bool
+	var background, wait, insecure, reconnect, githubAction, noPushRoutes, noPushDNS bool
 	var forwardRules, extraRoutes []string
 
 	cmd := &cobra.Command{
@@ -453,6 +454,9 @@ func connectCmd() *cobra.Command {
 				Insecure:    insecure,
 				Reconnect:   reconnect,
 				ExtraRoutes: extraRoutes,
+
+				NoPushRoutes: noPushRoutes,
+				NoPushDNS:    noPushDNS,
 			}
 
 			// If no token, check for a saved profile first, then try without token
@@ -541,6 +545,8 @@ func connectCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification")
 	cmd.Flags().BoolVar(&reconnect, "reconnect", true, "Auto-reconnect with exponential backoff on unexpected drop; use --reconnect=false to disable")
 	cmd.Flags().StringArrayVar(&forwardRules, "forward", nil, "Forward local port to remote (localPort:remoteHost:remotePort), e.g. 5432:10.8.0.1:5432")
+	cmd.Flags().BoolVar(&noPushRoutes, "no-push-routes", false, "Ignore routes pushed by the server (e.g. auto-detected Kubernetes service CIDR)")
+	cmd.Flags().BoolVar(&noPushDNS, "no-push-dns", false, "Ignore split DNS pushed by the server (e.g. *.cluster.local via kube-dns)")
 	cmd.Flags().StringArrayVar(&extraRoutes, "route", nil, "Extra CIDR to route through VPN (e.g. 20.29.40.0/24). Repeatable. Docker containers on the runner benefit automatically.")
 
 	// Hidden flags — for CI/CD use; not shown in --help.

@@ -253,32 +253,17 @@ Your laptop  ──TLS──►  auth-vpn LoadBalancer  ──►  ClusterIP ser
 **Quick start:**
 
 ```bash
-# 1. Build your image from the included Dockerfile and push to your registry
-docker build -t <your-registry>/auth-vpn:latest .
-docker push <your-registry>/auth-vpn:latest
+kubectl apply -k "github.com/adishM98/auth-vpn/k8s?ref=main"
+kubectl logs -n auth-vpn deploy/auth-vpn          # admin token
+kubectl get svc -n auth-vpn auth-vpn               # LoadBalancer IP
 
-# 2. Set your image in k8s/deployment.yaml (the only line that requires a real value)
-#    Replace: image: <your-registry>/auth-vpn:latest
-#    With:    image: myacr.azurecr.io/auth-vpn:latest  (or your actual tag)
-
-# 3. Set your namespace across all three manifests (default: "default")
-sed -i '' 's/namespace: default/namespace: your-namespace/g' k8s/*.yaml
-# Linux: sed -i 's/namespace: default/namespace: your-namespace/g' k8s/*.yaml
-
-# 4. Apply
-kubectl apply -f k8s/pvc.yaml
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
-
-# 5. Get the admin token from first-boot logs
-kubectl logs -n your-namespace deploy/auth-vpn
-
-# 6. Connect — namespace-scoped (only services you explicitly list)
-auth-vpn connect <LB-IP>:7777 --token <token> --route 10.0.x.x/32 --route 10.0.y.y/32
-
-# Or route the entire cluster service CIDR
-auth-vpn connect <LB-IP>:7777 --token <token> --route <service-cidr>
+sudo auth-vpn connect <LB-IP>:7777 --token <token>
+psql -h postgres.myns.svc.cluster.local            # service DNS works through the tunnel
 ```
+
+The server auto-detects the cluster's service CIDR and DNS and pushes both to clients — no `--route` flags, no VNet peering.
+
+Want only some Services reachable? Set `AUTH_VPN_EXPOSE=labeled` and label them `auth-vpn.io/expose=true`. The server then pushes and allows just those, on any cluster, with no NetworkPolicy needed. See [Put only some services behind auth-vpn](docs/k8s-deployment.md#put-only-some-services-behind-auth-vpn-labeled-mode).
 
 > See [docs/k8s-deployment.md](docs/k8s-deployment.md) for the full guide — namespace setup, image registry options, connecting from a laptop or CI, token management, and troubleshooting.
 

@@ -47,14 +47,21 @@ func (s *Server) handleProxyConn(conn net.Conn, name string) {
 		switch msgType {
 		case protocol.TypeProxyDial:
 			var req protocol.ProxyDialRequest
-			if err := protocol.Decode(payload, &req); err != nil {
+			if err = protocol.Decode(payload, &req); err != nil {
 				continue
 			}
 
-			target := net.JoinHostPort(req.Host, fmt.Sprintf("%d", req.Port))
-			tc, err := net.DialTimeout("tcp", target, 10*time.Second)
+			host := req.Host
+			if s.expose != nil {
+				host, err = s.expose.resolveTarget(req.Host, req.Port, net.LookupIP)
+			}
+			target := net.JoinHostPort(host, fmt.Sprintf("%d", req.Port))
+			var tc net.Conn
+			if err == nil {
+				tc, err = net.DialTimeout("tcp", target, 10*time.Second)
+			}
 			if err != nil {
-				log.Printf("proxy: %s dial %s: %v", name, target, err)
+				log.Printf("proxy: %s dial %s: %v", name, net.JoinHostPort(req.Host, fmt.Sprintf("%d", req.Port)), err)
 				writeFrame(protocol.TypeProxyFail, protocol.Encode(protocol.ProxyDialFail{
 					StreamID: req.StreamID,
 					Reason:   err.Error(),

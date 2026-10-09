@@ -1,0 +1,10 @@
+# Apply straight from GitHub (creates the auth-vpn namespace):
+#   kubectl apply -k "github.com/adishM98/auth-vpn/k8s?ref=main"
+# Another namespace? Use an overlay that sets `namespace:` and points at this directory.
+namespace: auth-vpn
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml

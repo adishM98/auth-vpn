@@ -55,224 +55,125 @@ MASQUERADE rewrites the source IP to the pod's real CNI IP before the packet lea
 ## Prerequisites
 
 - `kubectl` configured for your cluster
-- Docker (to build and push the image)
-- A container registry your cluster can pull from (ACR, ECR, GCR, Docker Hub, ghcr.io)
 - `auth-vpn` client on your laptop:
   ```bash
   curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
   ```
 
----
-
-## Step 1 — Build your Docker image
-
-The repo includes a `Dockerfile` at the root. It uses a two-stage build:
-
-- **Build stage** — compiles the Go binary inside `golang:latest` (statically linked, no CGO)
-- **Runtime stage** — copies the binary into `debian:bookworm-slim` alongside `iproute2` and `iptables`, which are required for the TUN interface and MASQUERADE rule
-
-Build and push to your registry:
-
-```bash
-# Build
-docker build -t <your-registry>/auth-vpn:latest .
-
-# (Optional) tag a specific version alongside latest
-docker build -t <your-registry>/auth-vpn:v2.2.0 -t <your-registry>/auth-vpn:latest .
-
-# Push
-docker push <your-registry>/auth-vpn:latest
-```
-
-| Registry | Example tag |
-|----------|-------------|
-| Azure Container Registry | `myacr.azurecr.io/auth-vpn:latest` |
-| Amazon ECR | `123456789.dkr.ecr.us-east-1.amazonaws.com/auth-vpn:latest` |
-| Google Artifact Registry | `us-docker.pkg.dev/my-project/my-repo/auth-vpn:latest` |
-| Docker Hub | `docker.io/youruser/auth-vpn:latest` |
-| GitHub Container Registry | `ghcr.io/youruser/auth-vpn:latest` |
-
-**ACR on AKS** — grant the cluster pull access once:
-```bash
-az aks update -n <cluster-name> -g <resource-group> --attach-acr <acr-name>
-```
+No image build needed — every release publishes a multi-arch (amd64 + arm64) image to `ghcr.io/adishm98/auth-vpn`.
 
 ---
 
-## Step 2 — Put your image in the deployment manifest
+## Step 1 — Deploy
 
-Open `k8s/deployment.yaml` and set the `image:` field to the tag you just pushed:
-
-```yaml
-# k8s/deployment.yaml  (line 18)
-image: myacr.azurecr.io/auth-vpn:latest
+```bash
+kubectl apply -k "github.com/adishM98/auth-vpn/k8s?ref=main"
 ```
 
-The placeholder in the file is:
-```
-image: <your-registry>/auth-vpn:latest
-```
+This creates the `auth-vpn` namespace, a ServiceAccount with read-only access to Services (used by labeled expose mode, below), the PVC, the Deployment and the LoadBalancer Service. From a clone: `kubectl apply -k k8s/`. For another namespace, write a small overlay that sets `namespace:` and points at this directory.
 
-Replace `<your-registry>/auth-vpn:latest` with your actual registry path. This is the only line in the manifests that requires a real value before you can deploy.
+The PVC (1 GiB) persists the TLS cert, tokens and `server.yaml` across pod restarts — your laptop won't be asked to re-trust the server and tokens stay valid.
+
+> Building your own image instead? From the repo root: `docker build -f docker/Dockerfile -t <registry>/auth-vpn:tag .`, push it, and set `image:` in `k8s/deployment.yaml`.
 
 ---
 
-## Step 3 — Set your namespace
-
-All three manifests default to the `default` namespace. Change this before applying:
+## Step 2 — Get the admin token and LoadBalancer IP
 
 ```bash
-# macOS
-sed -i '' 's/namespace: default/namespace: your-namespace/g' k8s/*.yaml
-
-# Linux
-sed -i 's/namespace: default/namespace: your-namespace/g' k8s/*.yaml
+kubectl logs -n auth-vpn deploy/auth-vpn     # look for: auth-vpn connect <IP>:7777 --token <TOKEN>
+kubectl get svc -n auth-vpn auth-vpn          # wait for EXTERNAL-IP (30–90 s)
 ```
 
-Or edit each file manually — `namespace:` appears in the `metadata` block of each manifest.
+Lost the token? `kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens add --name laptop`
 
 ---
 
-## Step 4 — Apply the manifests
+## Step 3 — Connect
 
 ```bash
-kubectl apply -f k8s/pvc.yaml
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
+sudo auth-vpn connect <LB-IP>:7777 --token <TOKEN> --background
 ```
 
-The PVC creates a 1 GiB volume that persists across pod restarts:
-- TLS certificate and key (`/etc/auth-vpn/tls/`)
-- Token store (`/etc/auth-vpn/tokens.yaml`)
-- Server config (`/etc/auth-vpn/server.yaml`)
+That's it. On connect the server **pushes** two things, auto-detected from inside the pod:
 
-After a pod restart your laptop will not be asked to re-trust the server cert, and all tokens remain valid.
+| Pushed | Detected from | Effect on your laptop |
+|---|---|---|
+| Service CIDR route | `KUBERNETES_SERVICE_HOST` (guess: /16 around it, /20 for non-private ranges like GKE's) | every ClusterIP is routed through the tunnel |
+| Split DNS | the pod's `/etc/resolv.conf` (kube-dns IP + cluster domain) | `*.cluster.local` resolves via kube-dns; all other DNS untouched |
+
+The connect output lists what was applied:
+```
+  Route     : 10.0.0.0/16 → VPN (pushed by server)
+  DNS       : *.cluster.local → 10.0.0.10
+```
+
+**If the service CIDR guess is wrong** (check the server log line `kubernetes: guessed service CIDR ...` against `kubectl cluster-info dump | grep -m1 service-cluster-ip-range`), set it on the Deployment — comma-separated, can include extra VNet/pod CIDRs:
+```bash
+kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_PUSH_ROUTES=10.0.0.0/16,10.224.0.0/12
+```
+
+**Opt out** — per client with `--no-push-routes` / `--no-push-dns`, or server-wide with `no_push: true` in `/etc/auth-vpn/server.yaml`. Then route manually as before: `--route <cidr>` (repeatable).
+
+**Platform notes**
+- macOS writes `/etc/resolver/cluster.local` (removed on disconnect). `dig`/`nslookup` bypass it — test with `dscacheutil -q host -a name <svc>.<ns>.svc.cluster.local`.
+- Linux needs systemd-resolved (`resolvectl`); without it you get a warning and IPs still work.
+- Proxy mode (`--forward`) resolves names server-side, so `--forward 5432:postgres.myns.svc.cluster.local:5432` works without any of this.
 
 ---
 
-## Step 5 — Get the admin token
+## Put only some services behind auth-vpn (labeled mode)
 
-On first boot auth-vpn generates a self-signed TLS cert and an `admin` token. Retrieve it from the pod logs:
+By default, everything the pod can reach is reachable through the tunnel. To expose **only chosen Services**, for example Grafana, while every other Service stays exactly as it is, switch to labeled mode:
 
 ```bash
-kubectl logs -n <namespace> deploy/auth-vpn
+# 1. turn it on (server-wide)
+kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_EXPOSE=labeled
+
+# 2. opt Services in, in any namespace
+kubectl label svc grafana-lb -n default auth-vpn.io/expose=true
 ```
 
-Look for:
-```
-auth-vpn connect <IP>:7777 --token <TOKEN>
-```
+What changes:
 
-**Copy this token.** It is shown once. If you lose it:
+| | Default (`all`) | `labeled` |
+|---|---|---|
+| Routes pushed to clients | the whole service CIDR (guessed) | one `/32` per labelled Service |
+| What the server forwards (TUN) | anything | only TCP/UDP to a labelled Service's ClusterIP **and** port, plus cluster DNS on 53 |
+| Proxy mode (`--forward`) | dials anything | only labelled Services. Names are resolved in the pod, and the checked IP is the one dialed |
+| Unlabelled Services | reachable | dropped, even if a client adds `--route` |
+
+- **Enforced by auth-vpn itself.** No NetworkPolicy or policy engine is needed, so it works on any cluster, including ones where `networkPolicy` is `none`.
+- **Kept up to date.** The pod re-lists labelled Services every 30 s (via the `auth-vpn-read-services` ClusterRole in `k8s/rbac.yaml`). New labels are enforced within 30 s. Clients get new routes on their next reconnect.
+- **Fail closed.** If the API is unreachable, the last good list is kept. Before the first successful list, only cluster DNS is allowed.
+- **Not covered:**
+  - Headless Services (no ClusterIP)
+  - ICMP and non-first IP fragments, which are dropped
+  - Direct forwards and the SSH server, which the admin configures separately
+
+Labelling doesn't change the Service itself. If it should no longer be public, make it ClusterIP-only yourself (it keeps the same ClusterIP):
+
 ```bash
-kubectl exec -n <namespace> deploy/auth-vpn -- auth-vpn server tokens add --name laptop
+kubectl patch svc grafana-lb -n default --type=json -p '[
+  {"op":"replace","path":"/spec/type","value":"ClusterIP"},
+  {"op":"remove","path":"/spec/ports/0/nodePort"}]'
 ```
+
+Add `--dry-run=server` first to preview it. Then connect and open `http://grafana-lb.default.svc.cluster.local`.
 
 ---
 
-## Step 6 — Get the LoadBalancer IP
+## Step 4 — Use services by name
 
 ```bash
-kubectl get svc auth-vpn -n <namespace>
-```
-
-Wait until `EXTERNAL-IP` is populated (typically 30–90 seconds):
-
-```
-NAME       TYPE           CLUSTER-IP    EXTERNAL-IP   PORT(S)
-auth-vpn   LoadBalancer   10.0.x.x      20.x.x.x      7777:.../TCP, 9100:.../TCP
+psql -h postgres.myns.svc.cluster.local -U postgres
+redis-cli -h redis.myns.svc.cluster.local
+curl http://api.myns.svc.cluster.local:8080/health
 ```
 
 ---
 
-## Step 7 — Connect from your laptop
-
-You can route the entire cluster or just the services in a specific namespace. Start with namespace-scoped routing and widen only if needed.
-
----
-
-**Option A — Namespace-scoped routing (recommended)**
-
-Route only the ClusterIP addresses of services in your namespace. This is the least permissive option — your laptop can only reach what you explicitly list.
-
-Get the ClusterIPs for your namespace:
-```bash
-kubectl get svc -n <namespace>
-```
-
-Then pass each IP as a `/32` route:
-```bash
-auth-vpn connect <LB-IP>:7777 --token <token> \
-  --route 10.0.x.x/32 \
-  --route 10.0.y.y/32 \
-  --background --reconnect
-```
-
-Add or remove `--route` flags as services change. No other namespace is reachable.
-
----
-
-**Option B — Whole cluster routing**
-
-Routes the entire service CIDR, giving access to every ClusterIP in every namespace. Convenient if you work across many namespaces.
-
-Find your cluster's service CIDR:
-```bash
-# AKS
-az aks show -n <cluster-name> -g <resource-group> --query networkProfile.serviceCidr
-
-# GKE
-gcloud container clusters describe <cluster-name> --format='value(servicesIpv4Cidr)'
-
-# EKS / generic
-kubectl cluster-info dump | grep -m1 service-cluster-ip-range
-```
-
-Then connect:
-```bash
-auth-vpn connect <LB-IP>:7777 --token <token> --route <service-cidr> --background --reconnect
-```
-
----
-
-**Save as a profile**
-```bash
-auth-vpn profile save k8s-staging \
-  --host <LB-IP>:7777 \
-  --token <token>
-
-# Namespace-scoped
-auth-vpn connect k8s-staging --route 10.0.x.x/32 --route 10.0.y.y/32 --background --reconnect
-
-# Whole cluster
-auth-vpn connect k8s-staging --route <service-cidr> --background --reconnect
-```
-
----
-
-## Step 8 — Access services
-
-Once connected, ClusterIP addresses are reachable directly:
-
-```bash
-# Postgres at ClusterIP 10.0.x.x:5432
-psql -h 10.0.x.x -p 5432 -U postgres
-
-# Redis
-redis-cli -h 10.0.x.x -p 6379
-
-# Any HTTP service
-curl http://10.0.x.x:8080/health
-```
-
-To find ClusterIP addresses:
-```bash
-kubectl get svc -n <namespace>
-```
-
----
-
-## Step 9 — Remove public LoadBalancer IPs (optional)
+## Step 5 — Remove public LoadBalancer IPs (optional)
 
 Once the tunnel is confirmed working, convert public-facing services to ClusterIP to remove their Azure/GCP/AWS public IPs:
 
@@ -290,19 +191,19 @@ After this, those services are only reachable through the auth-vpn tunnel.
 
 ```bash
 # Create a token for a teammate
-kubectl exec -n <namespace> deploy/auth-vpn -- auth-vpn server tokens add --name alice
+kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens add --name alice
 
 # One-time token (auto-revokes after first use)
-kubectl exec -n <namespace> deploy/auth-vpn -- auth-vpn server tokens add --name alice --one-time
+kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens add --name alice --one-time
 
 # Expiring token
-kubectl exec -n <namespace> deploy/auth-vpn -- auth-vpn server tokens add --name ci --expires 24h
+kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens add --name ci --expires 24h
 
 # List active tokens
-kubectl exec -n <namespace> deploy/auth-vpn -- auth-vpn server tokens list
+kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens list
 
 # Revoke
-kubectl exec -n <namespace> deploy/auth-vpn -- auth-vpn server tokens revoke --name alice
+kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens revoke --name alice
 ```
 
 ---
@@ -318,7 +219,7 @@ It shows live connected clients, traffic counters, token management, and direct 
 
 To avoid exposing port `9100` publicly, remove it from the Service and access it via `kubectl port-forward` instead:
 ```bash
-kubectl port-forward -n <namespace> deploy/auth-vpn 9100:9100
+kubectl port-forward -n auth-vpn deploy/auth-vpn 9100:9100
 # then open http://localhost:9100/ui
 ```
 
@@ -368,7 +269,7 @@ Common causes:
 1. Confirm you passed `--route <service-cidr>` when connecting
 2. Run a probe from inside the pod:
    ```bash
-   kubectl exec -n <namespace> deploy/auth-vpn -- wget -qO- http://<cluster-ip>:<port>/health
+   kubectl exec -n auth-vpn deploy/auth-vpn -- wget -qO- http://<cluster-ip>:<port>/health
    ```
    If the pod itself can't reach the service, check NetworkPolicy rules in your cluster.
 

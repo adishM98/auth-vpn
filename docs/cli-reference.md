@@ -20,6 +20,13 @@ sudo auth-vpn server start --subnet 10.8.0.0/24 --server-ip 10.8.0.1
 sudo auth-vpn server start --metrics-addr 0.0.0.0:9100 --api-key <key>
 sudo auth-vpn server start --acl /etc/auth-vpn/acl.yaml
 
+# Routes / split DNS pushed to TUN clients — set in /etc/auth-vpn/server.yaml.
+# Inside Kubernetes these are auto-detected when unset; AUTH_VPN_PUSH_ROUTES env overrides the route guess.
+#   push_routes: [10.0.0.0/16]
+#   push_dns: {server: 10.0.0.10, domains: [cluster.local]}
+#   no_push: true            # disable pushing + auto-detection
+#   expose: labeled          # only Services labelled auth-vpn.io/expose=true are reachable (env: AUTH_VPN_EXPOSE)
+
 # See who is currently connected
 sudo auth-vpn server clients
 
@@ -51,6 +58,10 @@ auth-vpn connect staging --background --wait
 
 # Route additional CIDRs through the tunnel (e.g. k8s service subnet)
 auth-vpn connect staging --route 10.0.0.0/16
+
+# Ignore routes / split DNS the server pushes (e.g. auto-detected k8s service CIDR + *.cluster.local)
+auth-vpn connect staging --no-push-routes
+auth-vpn connect staging --no-push-dns
 
 # GitHub Actions: auto-mint a unique ephemeral token per job (reads AUTH_VPN_API_KEY env var)
 # Run with & so the step doesn't block; use `auth-vpn disconnect` at the end to revoke the token

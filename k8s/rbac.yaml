@@ -1,0 +1,28 @@
+# Read-only access to Services, used by expose mode "labeled" (AUTH_VPN_EXPOSE)
+# to find Services labelled auth-vpn.io/expose=true in any namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-vpn
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: auth-vpn-read-services
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: auth-vpn-read-services
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: auth-vpn-read-services
+subjects:
+  - kind: ServiceAccount
+    name: auth-vpn
+    namespace: auth-vpn  # kustomize rewrites this to the kustomization namespace

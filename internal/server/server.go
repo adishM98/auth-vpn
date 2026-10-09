@@ -38,6 +38,7 @@ type Server struct {
 	tun             *tunnel.Iface
 	acl             *acl.Engine
 	metrics         *Metrics
+	expose          *exposeSet // nil unless Expose == "labeled"
 	done            chan struct{}
 	wg              sync.WaitGroup
 }
@@ -55,6 +56,17 @@ type Config struct {
 	APIKey          string // bearer key for /plugin/* — empty to disable
 	ForwardBindAddr string // IP to bind direct-forward listeners to; empty = 0.0.0.0 (all interfaces)
 	SSHAddr         string // address for embedded SSH server, e.g. ":2222"; empty = disabled
+
+	// Pushed to TUN clients in AUTH_OK. Auto-detected inside Kubernetes when empty.
+	PushRoutes []string
+	PushDNS    *protocol.DNSConfig
+	NoPush     bool // disable pushing (and auto-detection) entirely
+
+	// Expose is "all" (default: anything the server can route) or "labeled":
+	// only Kubernetes Services labelled auth-vpn.io/expose=true are reachable,
+	// enforced per packet (TUN) and per dial (proxy).
+	Expose     string
+	clusterDNS string // kube-dns IP detected from resolv.conf, if any
 
 	// UIOnly runs the HTTP API/dashboard only — no TUN, no IP forwarding, no TLS
 	// tunnel listener, no control socket, no SSH server. Lets the dashboard be
@@ -79,6 +91,7 @@ func (cfg *Config) applyDefaults() {
 		cfg.SSHAddr = ":2222"
 	}
 	cfg.persistAutoDefaults()
+	cfg.resolvePush()
 }
 
 // outboundIP returns the local IP the OS would use for outbound traffic.
@@ -136,6 +149,12 @@ func baseIPFromSubnet(subnet string) (string, error) {
 func New(cfg *Config) (*Server, error) {
 	cfg.applyDefaults()
 
+	switch cfg.Expose {
+	case "", ExposeAll, ExposeLabeled:
+	default:
+		return nil, fmt.Errorf("invalid expose %q (want %q or %q)", cfg.Expose, ExposeAll, ExposeLabeled)
+	}
+
 	baseIP, err := baseIPFromSubnet(cfg.Subnet)
 	if err != nil {
 		return nil, err
@@ -172,7 +191,18 @@ func New(cfg *Config) (*Server, error) {
 		}
 	}
 
+	var exposed *exposeSet
+	if cfg.Expose == ExposeLabeled {
+		dnsIP := cfg.clusterDNS
+		if cfg.PushDNS != nil {
+			dnsIP = cfg.PushDNS.Server
+		}
+		exposed = newExposeSet(dnsIP)
+		log.Printf("expose=labeled: only Services labelled %s=true are reachable", exposeLabel)
+	}
+
 	return &Server{
+		expose:          exposed,
 		cfg:             cfg,
 		tokens:          tm,
 		whitelist:       wm,
@@ -228,6 +258,9 @@ func (s *Server) Start() error {
 	go s.startControlSocket()
 	go s.startDirectListeners()
 	go s.startSSHServer()
+	if s.expose != nil {
+		go s.watchExposed()
+	}
 
 	if s.cfg.MetricsAddr != "" {
 		go s.startHTTPAPI()
@@ -372,6 +405,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		ClientIP: client.ip,
 		ServerIP: s.cfg.ServerIP,
 		Subnet:   s.cfg.Subnet,
+		Routes:   s.pushRoutes(),
+		DNS:      s.cfg.PushDNS,
 	}
 	if err := client.writeFrame(protocol.TypeAuthOK, protocol.Encode(resp)); err != nil {
 		log.Printf("send AUTH_OK to %s: %v", clientName, err)
@@ -407,6 +442,10 @@ func (s *Server) forwardToTUN(c *connectedClient) {
 		c.Touch()
 		switch msgType {
 		case protocol.TypeIPPacket:
+			if s.expose != nil && !s.expose.allowPacket(payload) {
+				s.metrics.IncDropped()
+				continue
+			}
 			if _, err := s.tun.Write(payload); err != nil {
 				log.Printf("write to TUN: %v", err)
 				return
@@ -480,4 +519,17 @@ func (s *Server) startReaper() {
 			return
 		}
 	}
+}
+
+// pushRoutes is what TUN clients are told to route: configured routes plus,
+// in labeled mode, one /32 per exposed Service. Computed per connection, so
+// newly labelled Services reach clients on their next (re)connect.
+func (s *Server) pushRoutes() []string {
+	if s.cfg.NoPush {
+		return nil
+	}
+	if s.expose == nil {
+		return s.cfg.PushRoutes
+	}
+	return append(append([]string{}, s.cfg.PushRoutes...), s.expose.routes()...)
 }
