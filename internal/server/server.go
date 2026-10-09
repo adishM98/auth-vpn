@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -198,6 +199,11 @@ func New(cfg *Config) (*Server, error) {
 			dnsIP = cfg.PushDNS.Server
 		}
 		exposed = newExposeSet(dnsIP)
+		if _, p, err := net.SplitHostPort(cfg.MetricsAddr); err == nil {
+			if n, err := strconv.Atoi(p); err == nil {
+				exposed.allowSelf(cfg.ServerIP, uint16(n))
+			}
+		}
 		log.Printf("expose=labeled: only Services labelled %s=true are reachable", exposeLabel)
 	}
 

@@ -46,6 +46,7 @@ func ipv4(proto byte, dst string, port uint16, fragOffset uint16) []byte {
 func TestAllowPacket(t *testing.T) {
 	e := newExposeSet("10.0.0.10")
 	e.set([]svcPort{{IP: "10.0.238.163", Proto: "tcp", Port: 80}})
+	e.allowSelf("10.8.0.1", 9100) // the auth-vpn dashboard/API, reached over the tunnel
 
 	tests := []struct {
 		name string
@@ -59,6 +60,9 @@ func TestAllowPacket(t *testing.T) {
 		{"cluster DNS over TCP", ipv4(6, "10.0.0.10", 53, 0), true},
 		{"cluster DNS, other port", ipv4(17, "10.0.0.10", 9153, 0), false},
 		{"ICMP", ipv4(1, "10.0.238.163", 0, 0), false},
+		{"auth-vpn dashboard/API on the server's tunnel IP", ipv4(6, "10.8.0.1", 9100, 0), true},
+		{"server's tunnel IP, other port (SSH)", ipv4(6, "10.8.0.1", 2222, 0), false},
+		{"server's tunnel IP over UDP", ipv4(17, "10.8.0.1", 9100, 0), false},
 		{"non-first fragment (no ports to check)", ipv4(6, "10.0.238.163", 80, 185), false},
 		{"truncated packet", ipv4(6, "10.0.238.163", 80, 0)[:21], false},
 	}

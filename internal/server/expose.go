@@ -43,10 +43,17 @@ type exposeSet struct {
 	mu    sync.RWMutex
 	allow map[svcPort]bool
 	dns   string
+	self  svcPort // auth-vpn's own dashboard/API on its tunnel IP; never replaced by set()
 }
 
 func newExposeSet(dnsIP string) *exposeSet {
 	return &exposeSet{allow: map[svcPort]bool{}, dns: dnsIP}
+}
+
+// allowSelf lets connected clients reach auth-vpn's own dashboard/API
+// (ip = the server's tunnel IP). The API still requires its key.
+func (e *exposeSet) allowSelf(ip string, port uint16) {
+	e.self = svcPort{IP: ip, Proto: "tcp", Port: port}
 }
 
 func (e *exposeSet) set(ports []svcPort) {
@@ -61,6 +68,9 @@ func (e *exposeSet) set(ports []svcPort) {
 
 func (e *exposeSet) allowed(ip, proto string, port uint16) bool {
 	if ip == e.dns && port == 53 {
+		return true
+	}
+	if (svcPort{IP: ip, Proto: proto, Port: port}) == e.self {
 		return true
 	}
 	e.mu.RLock()
