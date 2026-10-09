@@ -60,7 +60,7 @@ MASQUERADE rewrites the source IP to the pod's real CNI IP before the packet lea
   curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
   ```
 
-No image build needed — every release publishes a multi-arch (amd64 + arm64) image to `ghcr.io/adishm98/auth-vpn`.
+No image build needed — the manifests use the published image `docker.io/adishm98/auth-vpn:latest` (amd64 + arm64).
 
 ---
 
