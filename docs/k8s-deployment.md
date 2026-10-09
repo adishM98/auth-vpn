@@ -212,7 +212,7 @@ kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens revoke --name
 
 The dashboard is exposed on port `9100` of the LoadBalancer. Accessible at:
 ```
-http://<LB-IP>:9100/ui
+https://<LB-IP>:9100/ui
 ```
 
 It shows live connected clients, traffic counters, token management, and direct forward config.

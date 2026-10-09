@@ -31,7 +31,7 @@ func TestInstallSummary(t *testing.T) {
 				"kubectl get svc -n auth-vpn auth-vpn",
 				"auth-vpn connect <EXTERNAL-IP>:7777 --token TOK",
 				"kubectl port-forward -n auth-vpn deploy/auth-vpn 9100:9100",
-				"https://localhost:9100/ui",
+				"http://localhost:9100/ui",
 			},
 			notWant: []string{"203.0.113.10", "systemctl", "Systemd"},
 		},

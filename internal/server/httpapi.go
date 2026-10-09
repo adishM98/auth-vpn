@@ -1,8 +1,10 @@
 package server
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -48,12 +50,24 @@ func (s *Server) startHTTPAPI() {
 		srv.Close()
 	}()
 
-	// Serve over TLS when the cert/key are available (same files as the tunnel).
-	// This lets GitHub Actions generate ephemeral tokens via
-	// --api-url https://<server>:<port> without SSH port-forwarding.
+	// With cert/key (same files as the tunnel), serve https and http on the
+	// same port: https from anywhere, plain http only over private paths
+	// (localhost / VPN subnet), and a redirect to https otherwise.
 	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
-		log.Printf("HTTP API listening on https://%s (metrics, /ui, /api)", s.cfg.MetricsAddr)
-		if err := srv.ListenAndServeTLS(s.cfg.TLSCert, s.cfg.TLSKey); err != nil && err != http.ErrServerClosed {
+		cert, err := tls.LoadX509KeyPair(s.cfg.TLSCert, s.cfg.TLSKey)
+		if err != nil {
+			log.Printf("HTTP API error: load TLS keypair: %v", err)
+			return
+		}
+		ln, err := net.Listen("tcp", s.cfg.MetricsAddr)
+		if err != nil {
+			log.Printf("HTTP API error: %v", err)
+			return
+		}
+		srv.Handler = s.plainHTTPOnlyFromPrivate(mux)
+		log.Printf("HTTP API listening on https://%s and http:// (plain http only from localhost and %s) — metrics, /ui, /api", s.cfg.MetricsAddr, s.cfg.Subnet)
+		dl := newDualListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
+		if err := srv.Serve(dl); err != nil && err != http.ErrServerClosed {
 			log.Printf("HTTP API error: %v", err)
 		}
 		return
