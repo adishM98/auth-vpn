@@ -15,7 +15,7 @@ spec:
       serviceAccountName: auth-vpn
       containers:
         - name: auth-vpn
-          image: ghcr.io/adishm98/auth-vpn:latest
+          image: docker.io/adishm98/auth-vpn:latest
           imagePullPolicy: Always
           env:
             - name: AUTH_VPN_PORT
