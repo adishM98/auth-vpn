@@ -300,7 +300,7 @@ func installSummary(publicIP string, port int, rawToken, apiKey string, env inst
 	line("")
 	if env.k8sNamespace != "" {
 		line("  Web dashboard:  kubectl port-forward -n %s deploy/auth-vpn 9100:9100", env.k8sNamespace)
-		line("                  then open https://localhost:9100/ui")
+		line("                  then open http://localhost:9100/ui")
 	} else {
 		line("  Web dashboard:  %s", dashboard)
 	}
