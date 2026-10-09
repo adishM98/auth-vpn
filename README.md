@@ -45,7 +45,7 @@ At the end you'll see:
   Connect with:
     auth-vpn connect <server-ip>:7777 --token abc123xyz
 
-  Web dashboard:  http://localhost:9100/ui
+  Web dashboard:  https://<server-ip>:9100/ui
   API key:        <generated-key>
   ─────────────────────────────────────────────
 ```
@@ -101,6 +101,8 @@ auth-vpn connect staging --background --reconnect
 - **IP whitelist** — static IPs/CIDRs (VMs, PaaS) can connect without a token; managed from the dashboard
 - **Direct forwards** — expose backend ports to whitelisted IPs with no auth-vpn client required
 - **SSH tunnel** — tools like your app or BI tools connect via standard SSH port forwarding; no auth-vpn binary needed on the client side
+- **Kubernetes labeled mode** — only Services you label `auth-vpn.io/expose=true` are reachable through the tunnel, enforced by the server itself (no NetworkPolicy engine needed); fails closed
+- **Pushed routes, filtered** — routes/DNS the server pushes are checked client-side (no default route, nothing covering the server's own IP, no bare TLDs) and can be turned off with `--no-push-routes` / `--no-push-dns`
 
 ---
 
@@ -123,10 +125,12 @@ auth-vpn profile save <name> --host <h> --token <t>
 
 ## Web dashboard
 
-After `server install`, a dashboard is available at `http://localhost:9100/ui`:
+After `server install`, a dashboard is available on port `9100`, over both `http://` and `https://`:
 
 - Live stats, connected clients, token management, IP whitelist, SSH keys, and direct forwards
-- Access remotely via `ssh -L 9100:localhost:9100 user@<vm-ip>`
+- **Connected to the VPN:** `http://10.8.0.1:9100/ui`
+- **Via SSH:** `ssh -L 9100:localhost:9100 user@<vm-ip>`, then `http://localhost:9100/ui`
+- **Directly:** `https://<server-ip>:9100/ui` (self-signed cert). Plain `http://` from the internet redirects to https, so the API key is never sent unencrypted over the internet.
 
 ---
 
@@ -162,7 +166,9 @@ Detailed docs for each server-side feature: [docs/server-features.md](docs/serve
 | **Direct forwards** | Expose backend ports to whitelisted IPs — no auth-vpn client on the other side |
 | **SSH tunnel** | Embedded SSH server on port 2222 — any SSH-capable tool can reach backend services |
 | **ACL rules** | Per-device allow/deny lists enforced at the packet level |
-| **HTTP API** | Full REST API at `:9100/api/` for tokens, clients, whitelist, forwards, and SSH keys |
+| **HTTP API** | Full REST API at `:9100/api/` for tokens, clients, whitelist, forwards, and SSH keys (http + https on one port) |
+| **Kubernetes push** | In a pod, the server pushes the service CIDR route and split DNS (`*.cluster.local`) to clients |
+| **Labeled mode** | `AUTH_VPN_EXPOSE=labeled`: only Services labelled `auth-vpn.io/expose=true` are reachable |
 
 ---
 
@@ -263,7 +269,14 @@ psql -h postgres.myns.svc.cluster.local            # service DNS works through t
 
 The server auto-detects the cluster's service CIDR and DNS and pushes both to clients — no `--route` flags, no VNet peering.
 
-Want only some Services reachable? Set `AUTH_VPN_EXPOSE=labeled` and label them `auth-vpn.io/expose=true`. The server then pushes and allows just those, on any cluster, with no NetworkPolicy needed. See [Put only some services behind auth-vpn](docs/k8s-deployment.md#put-only-some-services-behind-auth-vpn-labeled-mode).
+Want only some Services reachable? Set `AUTH_VPN_EXPOSE=labeled` and label them:
+
+```bash
+kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_EXPOSE=labeled
+kubectl label svc grafana -n monitoring auth-vpn.io/expose=true
+```
+
+The server then pushes and allows just those, on any cluster, with no NetworkPolicy needed. Everything else stays exactly as it is, including other public LoadBalancers. The dashboard stays reachable at `http://10.8.0.1:9100/ui` over the VPN. See [Put only some services behind auth-vpn](docs/k8s-deployment.md#put-only-some-services-behind-auth-vpn-labeled-mode) and the [recommended overlay](docs/k8s-deployment.md#recommended-a-small-overlay).
 
 > See [docs/k8s-deployment.md](docs/k8s-deployment.md) for the full guide — namespace setup, image registry options, connecting from a laptop or CI, token management, and troubleshooting.
 

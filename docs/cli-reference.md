@@ -131,3 +131,12 @@ auth-vpn version
 # Update binary in-place (restarts systemd service on server)
 sudo auth-vpn update
 ```
+
+## Environment variables
+
+| Variable | Used by | Effect |
+|---|---|---|
+| `AUTH_VPN_PORT` | Docker/k8s entrypoint | tunnel port for the first-boot install (default `7777`) |
+| `AUTH_VPN_EXPOSE` | server | `all` (default) or `labeled`: only Services labelled `auth-vpn.io/expose=true` are reachable (same as `expose:` in `server.yaml`) |
+| `AUTH_VPN_PUSH_ROUTES` | server | comma-separated CIDRs pushed to clients; overrides the auto-detected service CIDR (`push_routes:` in `server.yaml` wins over it) |
+| `AUTH_VPN_API_KEY` | `connect --github-action` | API key used to mint the per-job ephemeral token |

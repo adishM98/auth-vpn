@@ -119,12 +119,12 @@ sudo ./install.sh --server
   Connect with:
     auth-vpn connect 20.98.154.174:7777 --token abc123xyz
 
-  Web dashboard:  http://localhost:9100/ui
+  Web dashboard:  https://20.98.154.174:9100/ui
   API key:        <generated-key>
   ─────────────────────────────────────────────
 ```
 
-**Save that token** — it's the first team member's token. Create one per person (`auth-vpn server tokens add --name x`); each token can only be active in one place at a time.
+**Save that token** — it's the first team member's token. Create one per person (`auth-vpn server tokens add --name x`, or from the dashboard). A token can be used by several devices at once, so give each person their own and revoke it when they leave.
 
 Close all container ports from the public internet — only port **7777 (TCP)** needs to be open:
 
@@ -246,7 +246,7 @@ Tokens can also be created and revoked from the **Web dashboard** at `http://loc
 
 ## Part 5 — Web dashboard
 
-The server exposes a live dashboard at `http://localhost:9100/ui`:
+The server exposes a live dashboard on port `9100` (both `http://` and `https://`). Use `http://localhost:9100/ui` on the server, `http://10.8.0.1:9100/ui` from a connected VPN client, or `https://<server-ip>:9100/ui` from anywhere:
 
 - Active client count, uptime, bytes transferred
 - Connected clients table (name, tunnel IP, connected at)
