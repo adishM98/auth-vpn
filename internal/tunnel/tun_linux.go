@@ -58,9 +58,5 @@ func DelRoute(subnet string) error {
 
 // EnableForwarding turns on kernel IP forwarding (needed on server).
 func EnableForwarding() error {
-	out, err := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("enable forwarding (%s): %s", err, out)
-	}
-	return nil
+	return enableIPForward("/proc/sys/net/ipv4/ip_forward")
 }

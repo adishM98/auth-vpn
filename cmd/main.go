@@ -96,29 +96,13 @@ func serverInstallCmd() *cobra.Command {
 		Short: "Install and configure the auth-vpn server (run once on VM)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("Installing auth-vpn server...")
-			fmt.Print("  ✓ Detecting public IP... ")
 
 			publicIP, rawToken, apiKey, err := server.Install(port)
 			if err != nil {
 				return err
 			}
 
-			fmt.Println(publicIP)
-			fmt.Println("  ✓ TLS certificate generated")
-			fmt.Println("  ✓ Initial token created")
-			fmt.Println("  ✓ Server config written to", server.ServerConfigFile)
-			fmt.Println("  ✓ ACL config written to", server.ACLFile)
-			fmt.Println("  ✓ Systemd service written")
-			fmt.Println()
-			fmt.Println("  Run:  sudo systemctl enable --now auth-vpn")
-			fmt.Println()
-			fmt.Println("  ─────────────────────────────────────────────")
-			fmt.Printf("  Connect with:\n")
-			fmt.Printf("    auth-vpn connect %s:%d --token %s\n", publicIP, port, rawToken)
-			fmt.Println()
-			fmt.Printf("  Web dashboard:  http://%s:9100/ui\n", publicIP)
-			fmt.Printf("  API key:        %s\n", apiKey)
-			fmt.Println("  ─────────────────────────────────────────────")
+			fmt.Print(server.InstallSummary(publicIP, port, rawToken, apiKey))
 			return nil
 		},
 	}

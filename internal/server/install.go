@@ -113,9 +113,11 @@ func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 		fmt.Fprintf(os.Stderr, "warning: write acl.yaml: %v\n", err)
 	}
 
-	if err = WriteSystemdService(port); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
-		err = nil
+	if !detectInstallEnv().container { // no systemd inside Docker/Kubernetes
+		if err = WriteSystemdService(port); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+			err = nil
+		}
 	}
 
 	return publicIP, rawToken, apiKey, nil
@@ -237,4 +239,72 @@ User=root
 WantedBy=multi-user.target
 `, exe, port)
 	return os.WriteFile(ServiceFile, []byte(svc), 0o644)
+}
+
+// installEnv is where `server install` is running, which decides what the
+// summary tells the operator to do next.
+type installEnv struct {
+	container    bool   // Docker/Podman/Kubernetes: no systemd
+	k8sNamespace string // non-empty inside a Kubernetes pod
+}
+
+func detectInstallEnv() installEnv {
+	var e installEnv
+	for _, f := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(f); err == nil {
+			e.container = true
+		}
+	}
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		e.container = true
+		e.k8sNamespace = "default"
+		if b, err := os.ReadFile(saDir + "/namespace"); err == nil {
+			e.k8sNamespace = strings.TrimSpace(string(b))
+		}
+	}
+	return e
+}
+
+// InstallSummary is what `server install` prints after Install succeeds.
+func InstallSummary(publicIP string, port int, rawToken, apiKey string) string {
+	return installSummary(publicIP, port, rawToken, apiKey, detectInstallEnv())
+}
+
+func installSummary(publicIP string, port int, rawToken, apiKey string, env installEnv) string {
+	var b strings.Builder
+	line := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
+	host, dashboard := publicIP, fmt.Sprintf("https://%s:9100/ui", publicIP)
+	if env.k8sNamespace == "" {
+		line("  ✓ Public IP: %s", publicIP)
+	}
+	line("  ✓ TLS certificate generated")
+	line("  ✓ Initial token created")
+	line("  ✓ Server config written to %s", ServerConfigFile)
+	line("  ✓ ACL config written to %s", ACLFile)
+	if !env.container {
+		line("  ✓ Systemd service written")
+		line("")
+		line("  Run:  sudo systemctl enable --now auth-vpn")
+	}
+	line("")
+	line("  ─────────────────────────────────────────────")
+	if env.k8sNamespace != "" {
+		// Inside a pod the detected IP is the node's egress IP, not the LoadBalancer.
+		host = "<EXTERNAL-IP>"
+		line("  Get the LoadBalancer IP:")
+		line("    kubectl get svc -n %s auth-vpn", env.k8sNamespace)
+		line("")
+	}
+	line("  Connect with:")
+	line("    auth-vpn connect %s:%d --token %s", host, port, rawToken)
+	line("")
+	if env.k8sNamespace != "" {
+		line("  Web dashboard:  kubectl port-forward -n %s deploy/auth-vpn 9100:9100", env.k8sNamespace)
+		line("                  then open https://localhost:9100/ui")
+	} else {
+		line("  Web dashboard:  %s", dashboard)
+	}
+	line("  API key:        %s", apiKey)
+	line("  ─────────────────────────────────────────────")
+	return b.String()
 }
