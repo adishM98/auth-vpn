@@ -4,6 +4,10 @@ metadata:
   name: auth-vpn
 spec:
   replicas: 1
+  # Recreate, not RollingUpdate: the PVC is ReadWriteOnce, so a new pod on
+  # another node can't attach the disk while the old pod still holds it.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: auth-vpn
@@ -15,7 +19,7 @@ spec:
       serviceAccountName: auth-vpn
       containers:
         - name: auth-vpn
-          image: ghcr.io/adishm98/auth-vpn:latest
+          image: docker.io/adishm98/auth-vpn:latest
           imagePullPolicy: Always
           env:
             - name: AUTH_VPN_PORT
