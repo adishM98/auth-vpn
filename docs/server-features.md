@@ -2,7 +2,7 @@
 
 ## Web dashboard
 
-After `server install`, the dashboard is available at `http://localhost:9100/ui` on the server:
+After `server install`, the dashboard is available on port `9100`, which serves both `http://` and `https://`:
 
 - Live stats: active clients, total connections, auth failures, bytes in/out, uptime
 - Connected clients table with tunnel IP, connection time, bytes in/out, and a **Kick** button to force-disconnect any client instantly
@@ -11,12 +11,15 @@ After `server install`, the dashboard is available at `http://localhost:9100/ui`
 - **SSH Keys**: generate server-side RSA keypairs or register existing public keys for SSH tunnel auth
 - **Direct Forwards**: expose backend ports to whitelisted IPs — no auth-vpn client needed
 
-To access the dashboard remotely, use an SSH tunnel:
+How to reach it:
 
-```bash
-ssh -L 9100:localhost:9100 user@<vm-ip>
-# then open http://localhost:9100/ui in your browser
-```
+| From | URL |
+|---|---|
+| A connected VPN client | `http://10.8.0.1:9100/ui` |
+| The server itself / an SSH tunnel | `ssh -L 9100:localhost:9100 user@<vm-ip>`, then `http://localhost:9100/ui` |
+| Anywhere else | `https://<server-ip>:9100/ui` (self-signed cert). Plain `http://` here redirects to https |
+
+Plain http is only served over private paths (localhost and the VPN subnet), so the API key never travels unencrypted over the internet. Paste the key into the page instead of using `?key=` in URLs.
 
 ---
 
@@ -174,12 +177,17 @@ sudo kill -SIGHUP <server-pid>
 
 ## HTTP API
 
-The server exposes an HTTP API at `http://localhost:9100/api/`:
+The server exposes an HTTP API on port `9100` (`http://localhost:9100/api/`, `http://10.8.0.1:9100/api/` over the VPN, or `https://<server-ip>:9100/api/`):
 
 ```
-GET  /api/status                  — server health + active client count
+GET  /health                      — server health, uptime, client count, traffic
+GET  /metrics                     — Prometheus metrics
 GET  /api/clients                 — list of connected devices
-GET  /api/probe?host=IP&port=N    — verify a host:port is reachable via VPN
+DEL  /api/clients/<name>          — force-disconnect a client
+GET  /api/tokens                  — list tokens (names, expiry; never the token itself)
+POST /api/tokens                  — create a token {name, one_time, expires_in}
+DEL  /api/tokens/<name>           — revoke a token
+GET  /plugin/probe?host=IP&port=N — verify a VPN-subnet/loopback host:port is reachable
 GET  /api/whitelist               — list whitelisted IPs
 POST /api/whitelist               — add an IP or CIDR
 DEL  /api/whitelist/<name>        — remove a whitelisted entry
@@ -210,3 +218,13 @@ Protect all API endpoints with an API key (set in `server.yaml` or via `--api-ke
 curl http://localhost:9100/api/clients \
   -H 'Authorization: Bearer <api-key>'
 ```
+
+---
+
+## Kubernetes: route + DNS push and labeled mode
+
+When the server runs in a Kubernetes pod, it detects the cluster's service CIDR and DNS and **pushes** them to TUN clients on connect. `*.svc.cluster.local` names then work from laptops and CI runners with no `--route` flags.
+
+With `AUTH_VPN_EXPOSE=labeled` (or `expose: labeled` in `server.yaml`), only Services labelled `auth-vpn.io/expose=true` are reachable through the tunnel. This is enforced per packet and per proxy dial by the server itself, so it works even where NetworkPolicy isn't enforced. The dashboard stays reachable at `http://10.8.0.1:9100/ui`.
+
+Full guide: [k8s-deployment.md](k8s-deployment.md).

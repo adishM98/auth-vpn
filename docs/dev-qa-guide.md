@@ -19,7 +19,7 @@ You need two things from your infra/admin team:
 > ```bash
 > auth-vpn server tokens add --name "your-name"
 > ```
-> They'll share the token with you. Keep it private — it's yours alone and can only be active in one place at a time.
+> They'll share the token with you. Keep it private — it's yours alone. Anyone holding it can connect as you (even at the same time), so tell the admin straight away if it leaks and they'll revoke it.
 
 ---
 

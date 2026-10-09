@@ -61,6 +61,14 @@ steps:
 
 ---
 
+## Servers running in Kubernetes
+
+If the auth-vpn server runs in a cluster, the runner gets the cluster's routes and split DNS pushed automatically. Jobs can use names like `postgres.myns.svc.cluster.local` with no `routes:` input. GitHub's Ubuntu runners have systemd-resolved, so DNS works out of the box.
+
+In labeled mode only Services labelled `auth-vpn.io/expose=true` are reachable from the job. See [k8s-deployment.md](k8s-deployment.md#put-only-some-services-behind-auth-vpn-labeled-mode).
+
+---
+
 ## Docker containers in the workflow
 
 If your job runs `docker-compose up`, those containers can also reach `10.8.0.1` with no changes to your `docker-compose.yaml`. Docker routes container traffic through the host network stack, so the VPN tunnel applies automatically.
@@ -73,7 +81,7 @@ If your job runs `docker-compose up`, those containers can also reach `10.8.0.1`
 |-------|----------|---------|-------------|
 | `server` | yes | — | VPN server address, e.g. `203.0.113.10:7777` |
 | `api-key` | yes | — | Server API key for ephemeral token generation |
-| `api-url` | no | `http://<host>:9100` | Override the API endpoint (use `https://` if the server has TLS certs) |
+| `api-url` | no | `http://<host>:9100` | API endpoint. **Set `https://<host>:9100`**: plain http from a runner is redirected to https, but the first request has already sent the key unencrypted |
 | `routes` | no | — | Extra CIDRs to route via VPN, comma-separated (e.g. `10.20.0.0/16`) |
 | `mode` | no | `tun` | `tun` (full OS routing, needs sudo) or `proxy` (explicit port-forwards, no root) |
 | `forwards` | no | — | Proxy mode only: `"5432:10.8.0.1:5432 6379:10.8.0.1:6379"` |
@@ -131,5 +139,5 @@ ports:
   # not: "127.0.0.1:5432:5432"
 ```
 
-**Parallel jobs fail with token conflict**
-Each job should use `--github-action` (or the Action, which does this automatically) — not a shared static token. Shared tokens can only be active in one place at a time.
+**Can parallel jobs share one token?**
+Each job should use `--github-action` (or the Action, which does this automatically) — not a shared static token. A shared static token never expires, can't be told apart per job in the dashboard, and if it leaks every pipeline is exposed until it's revoked.
