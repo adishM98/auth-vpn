@@ -253,17 +253,15 @@ More: [docs/github-actions.md](docs/github-actions.md) (matrix jobs, proxy mode,
 ## Install options
 
 ```bash
-# Server — prompts for the tunnel port (default 7777)
-curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash -s -- --server
-# Server on a specific port (no prompt)
-curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash -s -- --server --port=8888
-# Client
-curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
-# Pin a version
-curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash -s -- --version=v2.9.0
+URL=https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh
+
+curl -fsSL $URL | sudo bash                              # client
+curl -fsSL $URL | sudo bash -s -- --server               # server, port 7777
+curl -fsSL $URL | sudo bash -s -- --server --port=8888   # server, another port
+curl -fsSL $URL | sudo bash -s -- --version=v2.9.0       # pin a release (add to any line)
 ```
 
-Non-interactive installs (piped curl, CI) skip the port prompt: pass `--port=<n>` or set `TJ_VPN_PORT`.
+Piped installs never prompt, so the port is 7777 unless you pass `--port=<n>` or set `TJ_VPN_PORT`. To be asked for the port, run `./install.sh --server` from a clone.
 
 **Deploy from your Mac** (the VM needs nothing): `make deploy VM=azureuser@<vm-ip>` for a server, `make deploy-client VM=…` for a client.
 
