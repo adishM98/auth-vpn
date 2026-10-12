@@ -199,15 +199,32 @@ func (s *Server) handleDirectConn(conn net.Conn, target string) {
 	<-done
 }
 
-// killDirectConns closes all active direct-forward connections from the given IP.
-func (s *Server) killDirectConns(ip string) {
+// killDirectConns closes active direct-forward connections from every source
+// IP covered by a removed whitelist entry. Connections are tracked per remote
+// IP, so a CIDR entry ("10.0.0.0/24") is matched by containment, not by key.
+func (s *Server) killDirectConns(entry string) {
+	match := func(ip string) bool { return ip == entry }
+	if _, cidr, err := net.ParseCIDR(entry); err == nil {
+		match = func(ip string) bool { p := net.ParseIP(ip); return p != nil && cidr.Contains(p) }
+	} else if want := net.ParseIP(entry); want != nil {
+		match = func(ip string) bool { p := net.ParseIP(ip); return p != nil && p.Equal(want) }
+	}
+
 	s.dcMu.Lock()
-	conns := s.directConns[ip]
-	delete(s.directConns, ip)
+	var hit []net.Conn
+	for ip, conns := range s.directConns {
+		if !match(ip) {
+			continue
+		}
+		for c := range conns {
+			hit = append(hit, c)
+		}
+		delete(s.directConns, ip)
+	}
 	s.dcMu.Unlock()
 
-	for conn := range conns {
-		conn.Close()
-		log.Printf("direct: killed connection from de-whitelisted IP %s", ip)
+	for _, c := range hit {
+		c.Close()
+		log.Printf("direct: killed connection from de-whitelisted %s", c.RemoteAddr())
 	}
 }

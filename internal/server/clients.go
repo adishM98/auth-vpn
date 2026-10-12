@@ -56,9 +56,22 @@ func newClientRegistry(baseIP string) *clientRegistry {
 }
 
 // Assign allocates the lowest available tunnel IP and registers the client.
-func (r *clientRegistry) Assign(name string, conn net.Conn) (*connectedClient, error) {
+// maxPerName (> 0) caps how many leases one name may hold at once.
+func (r *clientRegistry) Assign(name string, conn net.Conn, maxPerName int) (*connectedClient, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if maxPerName > 0 {
+		held := 0
+		for _, c := range r.clients {
+			if c.name == name {
+				held++
+			}
+		}
+		if held >= maxPerName {
+			return nil, fmt.Errorf("%q already holds %d tunnel addresses (limit)", name, held)
+		}
+	}
 
 	var ip string
 	for octet := uint8(2); octet <= 254; octet++ {
@@ -118,6 +131,7 @@ func (r *clientRegistry) Snapshot() []clientInfo {
 	for _, c := range r.clients {
 		out = append(out, clientInfo{
 			Name:        c.name,
+			Mode:        "tun",
 			IP:          c.ip,
 			ConnectedAt: c.connectedAt,
 			BytesIn:     c.bytesIn.Load(),
@@ -144,7 +158,8 @@ func (r *clientRegistry) StaleConns(d time.Duration) []net.Conn {
 
 type clientInfo struct {
 	Name        string    `json:"name"`
-	IP          string    `json:"ip"`
+	Mode        string    `json:"mode,omitempty"` // "tun", "proxy" or "ssh"
+	IP          string    `json:"ip,omitempty"`
 	ConnectedAt time.Time `json:"connected_at"`
 	BytesIn     int64     `json:"bytes_in"`
 	BytesOut    int64     `json:"bytes_out"`

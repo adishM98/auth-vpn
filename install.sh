@@ -41,7 +41,13 @@ fail() { echo -e "\n  ${RED}✗ $*${RESET}\n" >&2; exit 1; }
 bold() { echo -e "${BOLD}$*${RESET}"; }
 line() { echo "  ────────────────────────────────────────────"; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# Only a real script file has a directory we can trust. When piped
+# (curl ... | sudo bash) there is none, and falling back to the current
+# directory would install whatever another local user dropped there.
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 
 # ── detect OS + arch ─────────────────────────────────────────────────────────
 detect_platform() {
@@ -198,12 +204,15 @@ resolve_binary() {
   local platform="$1"
 
   # 1. Pre-built binary already on disk (make deploy copies it here)
-  local candidates=(
-    "${SCRIPT_DIR}/${BINARY}-${platform}"
-    "${SCRIPT_DIR}/${BINARY}"
-    "${SCRIPT_DIR}/dist/${BINARY}-${platform}"
-    "${SCRIPT_DIR}/dist/${BINARY}"
-  )
+  local candidates=()
+  if [[ -n "$SCRIPT_DIR" ]]; then
+    candidates=(
+      "${SCRIPT_DIR}/${BINARY}-${platform}"
+      "${SCRIPT_DIR}/${BINARY}"
+      "${SCRIPT_DIR}/dist/${BINARY}-${platform}"
+      "${SCRIPT_DIR}/dist/${BINARY}"
+    )
+  fi
   for f in "${candidates[@]}"; do
     if [[ -f "$f" && -x "$f" ]]; then
       ok "Using pre-built binary: $(basename "$f")" >&2
@@ -219,7 +228,11 @@ resolve_binary() {
     return
   fi
 
-  # 3. Fall back to building from source (needs Go — auto-installed on Linux)
+  # 3. Fall back to building from source (needs Go — auto-installed on Linux).
+  #    Only from a cloned repo: never build whatever is in the caller's cwd.
+  if [[ -z "$SCRIPT_DIR" ]]; then
+    fail "Download failed for ${platform}. Check the release has a ${BINARY}-${platform} asset, or clone the repo and run ./install.sh to build from source."
+  fi
   warn "GitHub download failed — falling back to build from source" >&2
   ensure_go
   build_from_source "$platform"

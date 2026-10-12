@@ -873,12 +873,12 @@ function renderSidebar() {
     return `<div style="display:flex;align-items:center;gap:2px;">
       <button class="nav-item${s.name === currentView ? ' active' : ''}"
         data-server="${esc(s.name)}"
-        onclick="showView('${esc(s.name)}')"
+        data-name="${esc(s.name)}" onclick="showView(this.dataset.name)"
         style="flex:1;min-width:0;">
         <span class="nav-server-dot ${dotClass}" style="margin-left:0;"></span>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.name)}</span>
       </button>
-      <button class="nav-open-btn" title="Open native dashboard in new tab" onclick="openNativeDashboard('${esc(s.name)}')">↗</button>
+      <button class="nav-open-btn" title="Open native dashboard in new tab" data-name="${esc(s.name)}" onclick="openNativeDashboard(this.dataset.name)">↗</button>
     </div>`;
   }).join('');
 }
@@ -913,7 +913,7 @@ function renderOverview() {
     const meta = s.online
       ? `${s.active_clients || 0} client${s.active_clients === 1 ? '' : 's'} · ${traffic} traffic · ${fmt.ago(s.last_checked)}`
       : `Last seen ${fmt.ago(s.last_checked)}`;
-    return `<div class="server-row" onclick="showView('${esc(s.name)}')">
+    return `<div class="server-row" data-name="${esc(s.name)}" onclick="showView(this.dataset.name)">
       <div class="server-row-main">
         <span class="server-row-dot ${dotClass}"></span>
         <div>
@@ -969,7 +969,7 @@ async function refreshClients() {
         <td>${fmt.dt(c.connected_at)}</td>
         <td class="mono">↓${fmt.bytes(c.bytes_in)} ↑${fmt.bytes(c.bytes_out)}</td>
         <td><span class="status-dot success">Online</span></td>
-        <td><button class="btn btn-danger btn-sm" onclick="kickClient('${esc(c.name)}')">Kick</button></td>
+        <td><button class="btn btn-danger btn-sm" data-name="${esc(c.name)}" onclick="kickClient(this.dataset.name)">Kick</button></td>
       </tr>`).join('');
 }
 
@@ -985,7 +985,7 @@ async function refreshTokens() {
           <td>${info.type}</td>
           <td>${info.expires}</td>
           <td>${info.status}</td>
-          <td><button class="btn btn-danger btn-sm" onclick="revokeToken('${esc(t.name)}')">Revoke</button></td>
+          <td><button class="btn btn-danger btn-sm" data-name="${esc(t.name)}" onclick="revokeToken(this.dataset.name)">Revoke</button></td>
         </tr>`;
       }).join('');
 }
@@ -999,7 +999,7 @@ async function refreshWhitelist() {
         <td><strong>${esc(e.name)}</strong></td>
         <td class="mono">${esc(e.ip)}</td>
         <td>${fmt.dt(e.created_at)}</td>
-        <td><button class="btn btn-danger btn-sm" onclick="removeWhitelist('${esc(e.name)}')">Remove</button></td>
+        <td><button class="btn btn-danger btn-sm" data-name="${esc(e.name)}" onclick="removeWhitelist(this.dataset.name)">Remove</button></td>
       </tr>`).join('');
 }
 
@@ -1015,11 +1015,11 @@ async function refreshForwards() {
           ? `<span class="status-dot danger" title="${esc(err)}">Bind failed</span>`
           : `<span class="status-dot success">Active</span>`;
         return `<tr>
-          <td class="mono">:${f.listen_port}</td>
+          <td class="mono">:${Number(f.listen_port)}</td>
           <td class="mono">${esc(f.target)}</td>
           <td>${status}</td>
           <td>${fmt.dt(f.created_at)}</td>
-          <td><button class="btn btn-danger btn-sm" onclick="removeForward(${f.listen_port})">Remove</button></td>
+          <td><button class="btn btn-danger btn-sm" data-port="${Number(f.listen_port)}" onclick="removeForward(Number(this.dataset.port))">Remove</button></td>
         </tr>`;
       }).join('');
 }
@@ -1032,7 +1032,7 @@ async function refreshSSHKeys() {
     : keys.map(k => `<tr>
         <td><strong>${esc(k.name)}</strong></td>
         <td>${fmt.dt(k.created_at)}</td>
-        <td><button class="btn btn-danger btn-sm" onclick="removeSSHKey('${esc(k.name)}')">Remove</button></td>
+        <td><button class="btn btn-danger btn-sm" data-name="${esc(k.name)}" onclick="removeSSHKey(this.dataset.name)">Remove</button></td>
       </tr>`).join('');
 }
 

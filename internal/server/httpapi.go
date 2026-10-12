@@ -1,14 +1,21 @@
 package server
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/adishM98/auth-vpn/internal/auth"
+	"github.com/adishM98/auth-vpn/internal/httpguard"
 )
 
 // startHTTPAPI starts the HTTP listener for metrics, health, API, Web UI, and plugin routes.
@@ -98,7 +105,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAPIClients(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"clients": s.clients.Snapshot(),
+		"clients": append(s.clients.Snapshot(), s.sessions.nonTUN()...),
 	})
 }
 
@@ -112,12 +119,11 @@ func (s *Server) handleAPIClientDisconnect(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
 		return
 	}
-	c := s.clients.GetByName(name)
-	if c == nil {
+	// Every session with this name: TUN, proxy and SSH.
+	if s.sessions.closeWhere(name) == 0 {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "client not found"})
 		return
 	}
-	c.conn.Close() // triggers cleanup chain in handleConn
 	log.Printf("admin disconnected client %q", name)
 	writeJSON(w, http.StatusOK, map[string]string{"disconnected": name})
 }
@@ -148,12 +154,24 @@ func (s *Server) handleAPITokens(w http.ResponseWriter, r *http.Request) {
 			t := time.Now().UTC().Add(d)
 			expiresAt = &t
 		}
-		raw, err := s.tokens.Add(body.Name, expiresAt, body.OneTime)
+		name := body.Name
+		raw, err := s.tokens.Add(name, expiresAt, body.OneTime)
+		// Older CLIs name CI tokens gh-RUN-JOB-ATTEMPT, which repeats across
+		// matrix legs. They revoke by the name we return, so give a colliding
+		// ephemeral name a suffix instead of failing the job.
+		for i := 0; errors.Is(err, auth.ErrNameTaken) && isEphemeralName(body.Name) && i < 5; i++ {
+			name = body.Name + "-" + randSuffix()
+			raw, err = s.tokens.Add(name, expiresAt, body.OneTime)
+		}
+		if errors.Is(err, auth.ErrNameTaken) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]string{"token": raw, "name": body.Name})
+		writeJSON(w, http.StatusCreated, map[string]string{"token": raw, "name": name})
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -173,6 +191,10 @@ func (s *Server) handleAPITokenDelete(w http.ResponseWriter, r *http.Request) {
 	if err := s.tokens.Revoke(name); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
+	}
+	// Revoking also ends the sessions the token opened (tunnel and SSH).
+	if n := s.sessions.closeWhere(name, viaToken); n > 0 {
+		log.Printf("token %q revoked: closed %d live session(s)", name, n)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"revoked": name})
 }
@@ -221,6 +243,7 @@ func (s *Server) handleAPIWhitelistDelete(w http.ResponseWriter, r *http.Request
 	if ip != "" {
 		go s.killDirectConns(ip)
 	}
+	s.sessions.closeWhere(name, viaWhitelist) // tunnel sessions admitted by this entry
 	writeJSON(w, http.StatusOK, map[string]string{"removed": name})
 }
 
@@ -344,6 +367,7 @@ func (s *Server) handleAPISSHKeysDelete(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
+	s.sessions.closeWhere(name, viaSSHKey)
 	writeJSON(w, http.StatusOK, map[string]string{"removed": name})
 }
 
@@ -357,22 +381,41 @@ func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// checkAPIKey returns true if the request is authorized. When APIKey is empty,
-// all requests are allowed (open mode — suitable for internal-only deployments).
+// checkAPIKey returns true if the request is authorized. With no APIKey (open
+// mode: `server ui-dev`, or an explicit empty --api-key) any caller is allowed,
+// except requests a web page could forge from the operator's browser.
 func (s *Server) checkAPIKey(w http.ResponseWriter, r *http.Request) bool {
 	if s.cfg.APIKey == "" {
+		if err := httpguard.CheckBrowser(r); err != nil {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+			return false
+		}
 		return true
 	}
 	// Accept Bearer token in Authorization header or ?key= query param (for browser direct access).
-	auth := r.Header.Get("Authorization")
-	if strings.TrimPrefix(auth, "Bearer ") == s.cfg.APIKey {
+	if keyEqual(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), s.cfg.APIKey) {
 		return true
 	}
-	if r.URL.Query().Get("key") == s.cfg.APIKey {
+	if keyEqual(r.URL.Query().Get("key"), s.cfg.APIKey) {
 		return true
 	}
 	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	return false
+}
+
+// isEphemeralName matches the names `connect --api-key/--github-action` uses.
+func isEphemeralName(n string) bool {
+	return strings.HasPrefix(n, "gh-") || strings.HasPrefix(n, "ephemeral-")
+}
+
+func randSuffix() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func keyEqual(got, want string) bool {
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

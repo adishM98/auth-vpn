@@ -8,19 +8,21 @@ import (
 	"time"
 )
 
-var (
-	vpnSubnet    = func() *net.IPNet { _, n, _ := net.ParseCIDR("10.8.0.0/24"); return n }()
-	localhostNet = func() *net.IPNet { _, n, _ := net.ParseCIDR("127.0.0.0/8"); return n }()
-)
+var localhostNet = func() *net.IPNet { _, n, _ := net.ParseCIDR("127.0.0.0/8"); return n }()
 
-// isAllowedProbeHost restricts /plugin/probe to VPN-internal IPs and localhost only,
-// preventing SSRF to cloud metadata endpoints or arbitrary internet hosts.
-func isAllowedProbeHost(host string) bool {
+// isLocalTarget allows only localhost and the configured VPN subnet, preventing
+// SSRF to cloud metadata endpoints or arbitrary hosts. Used by /plugin/probe
+// and SSH direct-tcpip.
+func (s *Server) isLocalTarget(host string) bool {
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return false
 	}
-	return vpnSubnet.Contains(ip) || localhostNet.Contains(ip)
+	if localhostNet.Contains(ip) {
+		return true
+	}
+	_, vpn, err := net.ParseCIDR(s.cfg.Subnet)
+	return err == nil && vpn.Contains(ip)
 }
 
 // handlePlugin serves the /plugin/* routes used by app integrations.
@@ -58,7 +60,7 @@ func (s *Server) handlePlugin(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "host and port required"})
 			return
 		}
-		if !isAllowedProbeHost(host) {
+		if !s.isLocalTarget(host) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "host not allowed: only VPN subnet (10.8.0.0/24) and localhost are permitted"})
 			return
 		}

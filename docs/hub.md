@@ -97,7 +97,7 @@ The file is `0600` — only readable by the current user.
 
 ## Protecting the hub itself
 
-By default `hub serve` binds to `127.0.0.1` and requires no authentication — safe for local use. To protect it when binding to a non-loopback address, set `hub_key` in the config file:
+By default `hub serve` binds to `127.0.0.1` with no key. In that mode the hub only answers requests addressed to `localhost` or an IP (not a DNS name), refuses cross-site requests, and requires JSON for every change, so a web page open in your browser can't drive it. `hub serve` refuses to bind a non-loopback address until you set `hub_key` in the config file:
 
 ```yaml
 hub_key: your-secret-key

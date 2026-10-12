@@ -78,13 +78,13 @@ The PVC (1 GiB) persists the TLS cert, tokens and `server.yaml` across pod resta
 ## Step 2 — Get the admin token and LoadBalancer IP
 
 ```bash
-kubectl logs -n auth-vpn deploy/auth-vpn     # look for: auth-vpn connect <IP>:7777 --token <TOKEN>
+kubectl exec -n auth-vpn deploy/auth-vpn -- cat /etc/auth-vpn/initial-credentials   # admin_token + api_key
 kubectl get svc -n auth-vpn auth-vpn          # wait for EXTERNAL-IP (30–90 s)
 ```
 
-The admin token is printed **only on the first boot**. Store it in a password manager, and don't paste it into chats or tickets. For each teammate, create a personal token in the dashboard (see [Web dashboard](#web-dashboard)), then revoke `admin`.
+The admin token is created **only on the first boot**, and written to a root-only file on the volume rather than to the pod log (anyone who can read logs could otherwise read it). Delete the file once you've saved it. Store it in a password manager, and don't paste it into chats or tickets. For each teammate, create a personal token in the dashboard (see [Web dashboard](#web-dashboard)), then revoke `admin`.
 
-Lost it? Create a new one from the dashboard. Alternatively, run `kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens add --name laptop` followed by `kubectl rollout restart -n auth-vpn deploy/auth-vpn`: the CLI edits the token file, which the running server only re-reads on restart.
+Lost it? Create a new one from the dashboard, or run `kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens add --name laptop`. The running server picks up CLI changes to the token file on the next connection.
 
 ---
 
@@ -214,7 +214,7 @@ After this, those services are only reachable through the auth-vpn tunnel. The C
 
 ## Token management
 
-The dashboard (below) creates and revokes tokens **live**. The CLI commands edit the token file in the pod, so the running server only picks them up after `kubectl rollout restart -n auth-vpn deploy/auth-vpn`.
+The dashboard (below) creates and revokes tokens **live**, and revoking also closes sessions that are already open. The CLI commands edit the token file in the pod; the running server picks the change up on the next connection, but a CLI revoke doesn't close sessions that are already open (use the dashboard's Kick for that).
 
 ```bash
 # Create a token for a teammate

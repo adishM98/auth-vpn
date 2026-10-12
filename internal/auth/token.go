@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,15 +24,37 @@ type Token struct {
 	Used      bool       `yaml:"used,omitempty"       json:"used,omitempty"`
 }
 
+// ErrNameTaken is returned by Add when a token with that name already exists.
+var ErrNameTaken = errors.New("token name already exists")
+
 type tokensFile struct {
 	Tokens []*Token `yaml:"tokens"`
 }
 
 // Manager handles token CRUD and validation.
+//
+// The CLI (`server tokens ...`) and a running server each hold their own
+// Manager over the same file, so every operation first re-reads the file if
+// another process changed it. Without that, a CLI revoke is ignored by the
+// running server and later written back by the server's next save.
 type Manager struct {
-	mu       sync.RWMutex
+	mu       sync.Mutex
 	tokens   []*Token
 	filePath string
+	stamp    fileStamp // file state as of our last load/save
+}
+
+type fileStamp struct {
+	mod  time.Time
+	size int64
+}
+
+func stampOf(path string) (fileStamp, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return fileStamp{}, err
+	}
+	return fileStamp{mod: fi.ModTime(), size: fi.Size()}, nil
 }
 
 // NewManager loads tokens from filePath (creates the file if missing).
@@ -53,7 +76,23 @@ func (m *Manager) load() error {
 		return err
 	}
 	m.tokens = tf.Tokens
+	m.stamp, _ = stampOf(m.filePath)
 	return nil
+}
+
+// refresh reloads the file when another process changed it. Caller holds mu.
+func (m *Manager) refresh() error {
+	st, err := stampOf(m.filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if st == m.stamp {
+		return nil
+	}
+	return m.load()
 }
 
 func (m *Manager) save() error {
@@ -64,7 +103,16 @@ func (m *Manager) save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(m.filePath, data, 0o600)
+	// Write-then-rename so a crash never leaves a truncated tokens file.
+	tmp := m.filePath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, m.filePath); err != nil {
+		return err
+	}
+	m.stamp, _ = stampOf(m.filePath)
+	return nil
 }
 
 // Generate creates a cryptographically random 32-char hex token string.
@@ -85,6 +133,15 @@ func hashToken(raw string) string {
 func (m *Manager) Add(name string, expiresAt *time.Time, oneTime bool) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.refresh(); err != nil {
+		return "", err
+	}
+	// Names are the revocation handle, so they must be unique.
+	for _, t := range m.tokens {
+		if t.Name == name {
+			return "", fmt.Errorf("%w: %q", ErrNameTaken, name)
+		}
+	}
 
 	raw, err := Generate()
 	if err != nil {
@@ -104,6 +161,9 @@ func (m *Manager) Add(name string, expiresAt *time.Time, oneTime bool) (string, 
 func (m *Manager) Validate(raw string) (*Token, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.refresh(); err != nil {
+		return nil, fmt.Errorf("reload tokens: %w", err)
+	}
 
 	h := hashToken(raw)
 	for _, t := range m.tokens {
@@ -118,31 +178,45 @@ func (m *Manager) Validate(raw string) (*Token, error) {
 		}
 		if t.OneTime {
 			t.Used = true
-			_ = m.save()
+			// If the use can't be recorded, refuse it: otherwise the token
+			// becomes reusable after a restart.
+			if err := m.save(); err != nil {
+				t.Used = false
+				return nil, fmt.Errorf("record one-time token use: %w", err)
+			}
 		}
 		return t, nil
 	}
 	return nil, fmt.Errorf("invalid token")
 }
 
-// Revoke removes the first token with the given name.
+// Revoke removes every token with the given name (older files may hold
+// duplicates from before names were unique).
 func (m *Manager) Revoke(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.refresh(); err != nil {
+		return err
+	}
 
-	for i, t := range m.tokens {
-		if t.Name == name {
-			m.tokens = append(m.tokens[:i], m.tokens[i+1:]...)
-			return m.save()
+	kept := m.tokens[:0:0]
+	for _, t := range m.tokens {
+		if t.Name != name {
+			kept = append(kept, t)
 		}
 	}
-	return fmt.Errorf("token %q not found", name)
+	if len(kept) == len(m.tokens) {
+		return fmt.Errorf("token %q not found", name)
+	}
+	m.tokens = kept
+	return m.save()
 }
 
 // List returns a snapshot of all tokens.
 func (m *Manager) List() []*Token {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_ = m.refresh() // a stale list is better than none
 	out := make([]*Token, len(m.tokens))
 	copy(out, m.tokens)
 	return out

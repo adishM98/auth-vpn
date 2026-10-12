@@ -23,7 +23,8 @@ type ServerConfig struct {
 	ACLPath         string `yaml:"acl_path,omitempty"`
 	APIKey          string `yaml:"api_key,omitempty"`
 	ForwardBindAddr string `yaml:"forward_bind_addr,omitempty"` // IP to bind direct-forward listeners (empty = 0.0.0.0)
-	SSHAddr         string `yaml:"ssh_addr,omitempty"`          // embedded SSH server address, e.g. ":2222"
+	SSHAddr         string `yaml:"ssh_addr,omitempty"`          // embedded SSH server address, e.g. ":2222"; "off" disables it
+	MaxSessionsPerClient int `yaml:"max_sessions_per_client,omitempty"` // TUN leases one name may hold (default 0 = unlimited)
 
 	PushRoutes []string            `yaml:"push_routes,omitempty"` // CIDRs pushed to TUN clients (k8s: auto-detected when empty)
 	PushDNS    *protocol.DNSConfig `yaml:"push_dns,omitempty"`    // split DNS pushed to TUN clients (k8s: auto-detected when empty)
@@ -61,5 +62,9 @@ func SaveServerConfig(path string, cfg ServerConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	tmp := path + ".tmp" // write-then-rename: never leave a truncated server.yaml
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

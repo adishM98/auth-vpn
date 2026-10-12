@@ -39,3 +39,26 @@ func TestValidDNSDomain(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckTunnelAddrs(t *testing.T) {
+	cases := []struct {
+		name                     string
+		subnet, clientIP, tunSrv string
+		ok                       bool
+	}{
+		{"normal server", "10.8.0.0/24", "10.8.0.2", "10.8.0.1", true},
+		{"half the internet as the subnet", "128.0.0.0/1", "128.0.0.2", "128.0.0.1", false},
+		{"subnet covering the VPN server", "20.30.0.0/16", "20.30.0.2", "20.30.0.1", false},
+		{"client address outside the subnet", "10.8.0.0/24", "8.8.8.8", "10.8.0.1", false},
+		{"server address outside the subnet", "10.8.0.0/24", "10.8.0.2", "1.1.1.1", false},
+		{"garbage", "nope", "10.8.0.2", "10.8.0.1", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := checkTunnelAddrs(c.subnet, c.clientIP, c.tunSrv, "20.30.40.50")
+			if (err == nil) != c.ok {
+				t.Fatalf("checkTunnelAddrs = %v, want ok=%v", err, c.ok)
+			}
+		})
+	}
+}

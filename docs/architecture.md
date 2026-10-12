@@ -88,7 +88,7 @@ Settings come in three layers, and a later layer wins:
 | outgoing mail | `forwardToTUN` (one per client) | writes your packets to the TUN device. In labeled mode, checks each one first |
 | sorting clerk | `routeFromTUN` (one goroutine) | reads each reply's destination (bytes 16–19) and drops it in the right mailbox |
 | your mailbox | `sendCh`, 256 slots | replies waiting to go to you |
-| guard | ACL | optional per-device allow/deny on replies |
+| guard | ACL | optional per-device allow/deny on what each device sends (TUN, proxy and SSH) |
 | courier desk | proxy mode | dials `host:port` per stream, `PROXY_DATA` back and forth |
 | side rooms | API `:9100`, SSH `:2222`, direct forwards, control socket, reaper | run beside the tunnel |
 

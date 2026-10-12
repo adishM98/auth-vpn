@@ -846,11 +846,11 @@ async function refresh() {
           ? `<span class="status-dot danger" title="${esc(err)}">Bind failed</span>`
           : `<span class="status-dot success">Active</span>`;
         return `<tr>
-          <td class="mono">:${f.listen_port}</td>
+          <td class="mono">:${Number(f.listen_port)}</td>
           <td class="mono">${esc(f.target)}</td>
           <td>${status}</td>
           <td>${fmt.dt(f.created_at)}</td>
-          <td><button class="btn btn-danger btn-sm" data-port="${f.listen_port}" onclick="removeForward(Number(this.dataset.port))">Remove</button></td>
+          <td><button class="btn btn-danger btn-sm" data-port="${Number(f.listen_port)}" onclick="removeForward(Number(this.dataset.port))">Remove</button></td>
         </tr>`;
       }).join('');
 

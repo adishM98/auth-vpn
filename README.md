@@ -215,7 +215,7 @@ steps:
     with:
       server: ${{ secrets.VPN_SERVER }}            # <server-ip>:7777
       api-key: ${{ secrets.VPN_API_KEY }}          # api_key from /etc/auth-vpn/server.yaml
-      api-url: https://<server-ip>:9100
+      fingerprint: ${{ vars.VPN_FINGERPRINT }}     # SHA256:... printed by `server install`
 
   # services on the server are now at 10.8.0.1 (or by name, if the server runs in Kubernetes)
 
@@ -239,13 +239,13 @@ More: [docs/github-actions.md](docs/github-actions.md) (matrix jobs, proxy mode,
 ## Security model
 
 - **TLS 1.3** tunnel, with the server's self-signed cert **pinned on first use** (TOFU). A changed cert is refused.
-- **Tokens:** only a SHA-256 hash is stored on the server. Tokens can be permanent, expiring or one-time. Revoking one blocks new connections immediately, and **Kick** (dashboard) ends a live session.
+- **Tokens:** only a SHA-256 hash is stored on the server. Tokens can be permanent, expiring or one-time. Revoking one from the dashboard/API blocks new connections and closes the sessions it opened (tunnel, proxy and SSH). **Kick** ends every live session with that name.
 - **Rate limiting:** 5 failed auths in a minute → 60-second ban for that IP.
 - **Ephemeral CI tokens:** one per job, revoked on exit, with a 2-hour expiry as a backstop.
-- **ACL rules:** per-device allow/deny by protocol and port (optional).
+- **ACL rules:** per-device allow/deny by protocol and destination port (optional), applied the same way in TUN mode, proxy mode and over SSH.
 - **Kubernetes labeled mode:** only labelled Services are reachable. It's enforced by the server and fails closed.
-- **Pushed settings are filtered client-side:** no default route, nothing covering the server IP, no bare TLDs.
-- **API key** for the dashboard and API. It's never sent unencrypted over the internet.
+- **Pushed settings are filtered client-side:** no default route, nothing covering the server IP, no bare TLDs. The tunnel subnet and addresses go through the same check.
+- **API key** for the dashboard and API. The client refuses to send it over plain HTTP to a remote host, and `--fingerprint` pins the server's certificate for both the API and the tunnel.
 - **IP whitelist, direct forwards and SSH tunnel** are there for machines that can't run the client.
 
 ---

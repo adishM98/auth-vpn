@@ -28,6 +28,7 @@ type Options struct {
 	Background  bool     // suppress interactive output, write PID state file
 	Wait        bool     // block until tunnel verified before returning
 	Insecure    bool     // skip TLS cert verification (dev only)
+	Fingerprint string   // pin the server certificate (SHA256:...); overrides Insecure
 	Reconnect   bool     // auto-reconnect with exponential backoff on unexpected drop
 	ExtraRoutes []string // additional CIDRs to route via VPN beyond the assigned subnet
 
@@ -46,7 +47,7 @@ type Profile struct {
 // then forwards all traffic. Blocks until the tunnel is torn down.
 func Connect(opts Options) error {
 	log.Printf("connecting to %s ...", opts.ServerAddr)
-	conn, err := DialTLS(opts.ServerAddr, opts.Insecure)
+	conn, err := DialTLS(opts.ServerAddr, opts.Insecure, opts.Fingerprint)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", opts.ServerAddr, err)
 	}
@@ -83,6 +84,12 @@ func Connect(opts Options) error {
 		return fmt.Errorf("decode auth response: %w", err)
 	}
 
+	srvIP := serverIP(opts.ServerAddr)
+	if err := checkTunnelAddrs(resp.Subnet, resp.ClientIP, resp.ServerIP, srvIP); err != nil {
+		conn.Close()
+		return err
+	}
+
 	log.Printf("authenticated — assigned IP: %s", resp.ClientIP)
 
 	// Create TUN interface.
@@ -117,7 +124,6 @@ func Connect(opts Options) error {
 
 	// Server-pushed routes and split DNS (e.g. a cluster's service CIDR and
 	// kube-dns). Filtered client-side so a server can't hijack unrelated traffic.
-	srvIP := serverIP(opts.ServerAddr)
 	var pushedRoutes, dnsDomains []string
 	if !opts.NoPushRoutes {
 		pushedRoutes = safeRoutes(resp.Routes, srvIP)

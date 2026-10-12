@@ -12,6 +12,9 @@ import (
 	"github.com/adishM98/auth-vpn/pkg/protocol"
 )
 
+// maxProxyStreams caps concurrent target connections per proxy session.
+const maxProxyStreams = 256
+
 // handleProxyConn handles a post-auth connection that requested proxy mode.
 // The client sends ProxyDial frames; we dial the target on the server's local
 // network and ferry bytes back and forth over the shared TLS connection.
@@ -39,6 +42,9 @@ func (s *Server) handleProxyConn(conn net.Conn, name string) {
 	}()
 
 	for {
+		// Proxy sessions aren't in the TUN reaper; the client pings every 30 s,
+		// so a session silent for 3 minutes is dead.
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Minute))
 		msgType, payload, err := tunnel.ReadFrame(conn)
 		if err != nil {
 			return
@@ -51,8 +57,23 @@ func (s *Server) handleProxyConn(conn net.Conn, name string) {
 				continue
 			}
 
+			streamsMu.Lock()
+			_, inUse := streams[req.StreamID]
+			full := len(streams) >= maxProxyStreams
+			streamsMu.Unlock()
+			if inUse || full {
+				reason := "stream id already in use"
+				if full {
+					reason = "too many open streams"
+				}
+				writeFrame(protocol.TypeProxyFail, protocol.Encode(protocol.ProxyDialFail{StreamID: req.StreamID, Reason: reason}))
+				continue
+			}
+
 			host := req.Host
-			if s.expose != nil {
+			if s.acl != nil && !s.acl.AllowPort(name, "tcp", int(req.Port)) {
+				err = fmt.Errorf("denied by ACL")
+			} else if s.expose != nil {
 				host, err = s.expose.resolveTarget(req.Host, req.Port, net.LookupIP)
 			}
 			target := net.JoinHostPort(host, fmt.Sprintf("%d", req.Port))
@@ -82,7 +103,9 @@ func (s *Server) handleProxyConn(conn net.Conn, name string) {
 				defer func() {
 					tc.Close()
 					streamsMu.Lock()
-					delete(streams, id)
+					if streams[id] == tc { // don't drop a newer stream that reused the id
+						delete(streams, id)
+					}
 					streamsMu.Unlock()
 					closePayload := make([]byte, 4)
 					binary.BigEndian.PutUint32(closePayload, id)

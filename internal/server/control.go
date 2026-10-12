@@ -65,7 +65,7 @@ func (s *Server) handleControl(conn net.Conn) {
 	var resp controlResponse
 	switch req.Cmd {
 	case "clients":
-		resp.Clients = s.clients.Snapshot()
+		resp.Clients = append(s.clients.Snapshot(), s.sessions.nonTUN()...)
 		if resp.Clients == nil {
 			resp.Clients = []clientInfo{} // always return an array, never null
 		}

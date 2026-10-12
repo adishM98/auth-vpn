@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/adishM98/auth-vpn/internal/auth"
+	"github.com/adishM98/auth-vpn/internal/tlsutil"
 )
 
 const (
@@ -32,6 +33,9 @@ const (
 	SSHKeysFile   = "/etc/auth-vpn/ssh_keys.json"
 	ServiceFile   = "/etc/systemd/system/auth-vpn.service"
 	SocketFile    = "/var/run/auth-vpn.sock"
+	// CredentialsFile holds the first-boot admin token and API key in
+	// containers, where stdout is a pod log readable by more people than root.
+	CredentialsFile = "/etc/auth-vpn/initial-credentials"
 )
 
 // Install sets up the server: TLS cert, initial token, server.yaml, acl.yaml, systemd service.
@@ -105,8 +109,17 @@ func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 		cfg.APIKey = apiKey
 	}
 
+	// Fail here rather than let `server start` run without the key we just
+	// printed.
 	if err = SaveServerConfig(ServerConfigFile, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: write server.yaml: %v\n", err)
+		return "", "", "", fmt.Errorf("write %s: %w", ServerConfigFile, err)
+	}
+
+	if detectInstallEnv().container {
+		creds := fmt.Sprintf("admin_token: %s\napi_key: %s\n", rawToken, apiKey)
+		if err = os.WriteFile(CredentialsFile, []byte(creds), 0o600); err != nil {
+			return "", "", "", fmt.Errorf("write %s: %w", CredentialsFile, err)
+		}
 	}
 
 	if err = writeDefaultACL(ACLFile); err != nil {
@@ -121,6 +134,38 @@ func Install(port int) (publicIP, rawToken, apiKey string, err error) {
 	}
 
 	return publicIP, rawToken, apiKey, nil
+}
+
+// EnsureAPIKey gives a server.yaml without an api_key a fresh one and saves
+// it, so an old install never comes up with an unauthenticated admin API.
+func EnsureAPIKey(path string, sc *ServerConfig) error {
+	if sc.APIKey != "" {
+		return nil
+	}
+	key, err := generateAPIKey()
+	if err != nil {
+		return err
+	}
+	sc.APIKey = key
+	return SaveServerConfig(path, *sc)
+}
+
+// CertFingerprint returns the SHA256 fingerprint of the server certificate,
+// the value clients pass to --fingerprint.
+func CertFingerprint(certFile string) string {
+	data, err := os.ReadFile(certFile)
+	if err != nil {
+		return ""
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return ""
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return ""
+	}
+	return tlsutil.CertFingerprint(cert)
 }
 
 func generateAPIKey() (string, error) {
@@ -267,10 +312,10 @@ func detectInstallEnv() installEnv {
 
 // InstallSummary is what `server install` prints after Install succeeds.
 func InstallSummary(publicIP string, port int, rawToken, apiKey string) string {
-	return installSummary(publicIP, port, rawToken, apiKey, detectInstallEnv())
+	return installSummary(publicIP, port, rawToken, apiKey, CertFingerprint(CertFile), detectInstallEnv())
 }
 
-func installSummary(publicIP string, port int, rawToken, apiKey string, env installEnv) string {
+func installSummary(publicIP string, port int, rawToken, apiKey, fingerprint string, env installEnv) string {
 	var b strings.Builder
 	line := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 	host, dashboard := publicIP, fmt.Sprintf("https://%s:9100/ui", publicIP)
@@ -295,6 +340,18 @@ func installSummary(publicIP string, port int, rawToken, apiKey string, env inst
 		line("    kubectl get svc -n %s auth-vpn", env.k8sNamespace)
 		line("")
 	}
+	if env.container {
+		// stdout is the container log here: point at the 0600 file instead
+		// of printing long-lived secrets into it.
+		rawToken, apiKey = "<TOKEN>", "<API-KEY>"
+		line("  Admin token and API key were written to %s (root-only):", CredentialsFile)
+		if env.k8sNamespace != "" {
+			line("    kubectl exec -n %s deploy/auth-vpn -- cat %s", env.k8sNamespace, CredentialsFile)
+		} else {
+			line("    docker exec <container> cat %s", CredentialsFile)
+		}
+		line("")
+	}
 	line("  Connect with:")
 	line("    auth-vpn connect %s:%d --token %s", host, port, rawToken)
 	line("")
@@ -305,6 +362,10 @@ func installSummary(publicIP string, port int, rawToken, apiKey string, env inst
 		line("  Web dashboard:  %s", dashboard)
 	}
 	line("  API key:        %s", apiKey)
+	if fingerprint != "" {
+		line("  Fingerprint:    %s", fingerprint)
+		line("                  (pin it with --fingerprint, or the Action's fingerprint input)")
+	}
 	line("  ─────────────────────────────────────────────")
 	return b.String()
 }

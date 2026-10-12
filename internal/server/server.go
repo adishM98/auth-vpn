@@ -40,6 +40,9 @@ type Server struct {
 	acl             *acl.Engine
 	metrics         *Metrics
 	expose          *exposeSet // nil unless Expose == "labeled"
+	sessions        *sessionSet
+	tunPreAuth      chan struct{} // pre-auth slots on the tunnel port
+	sshPreAuth      chan struct{} // pre-auth slots on the SSH port
 	done            chan struct{}
 	wg              sync.WaitGroup
 }
@@ -52,11 +55,22 @@ type Config struct {
 	TokensPath  string
 	Subnet      string // e.g. "10.0.0.0/24"
 	ServerIP    string // e.g. "10.0.0.1"
-	MetricsAddr     string // e.g. "localhost:9100" — empty to disable
+	MetricsAddr     string // e.g. "0.0.0.0:9100"; empty = default, "off" = no HTTP API
 	ACLPath         string // path to acl.yaml — empty to disable
-	APIKey          string // bearer key for /plugin/* — empty to disable
+	APIKey          string // bearer key for /api/*, /ui and /plugin/*
 	ForwardBindAddr string // IP to bind direct-forward listeners to; empty = 0.0.0.0 (all interfaces)
-	SSHAddr         string // address for embedded SSH server, e.g. ":2222"; empty = disabled
+	SSHAddr         string // embedded SSH server, e.g. ":2222"; empty = default, "off" = disabled
+
+	// MaxSessionsPerClient caps TUN leases held by one name (token or
+	// whitelist entry), so one credential can't take the whole address pool.
+	// 0 = unlimited (the default, as before).
+	MaxSessionsPerClient int
+
+	// Store paths; empty = the /etc/auth-vpn defaults. ui-dev points these at
+	// local files so it never touches a real server's state.
+	WhitelistPath string
+	ForwardsPath  string
+	SSHKeysPath   string
 
 	// Pushed to TUN clients in AUTH_OK. Auto-detected inside Kubernetes when empty.
 	PushRoutes []string
@@ -91,6 +105,18 @@ func (cfg *Config) applyDefaults() {
 	if cfg.SSHAddr == "" {
 		cfg.SSHAddr = ":2222"
 	}
+	if cfg.WhitelistPath == "" {
+		cfg.WhitelistPath = WhitelistFile
+	}
+	if cfg.ForwardsPath == "" {
+		cfg.ForwardsPath = ForwardsFile
+	}
+	if cfg.SSHKeysPath == "" {
+		cfg.SSHKeysPath = SSHKeysFile
+	}
+	if cfg.UIOnly {
+		return // dev mode: never write the real server.yaml, no push detection
+	}
 	cfg.persistAutoDefaults()
 	cfg.resolvePush()
 }
@@ -119,7 +145,7 @@ func (cfg *Config) persistAutoDefaults() {
 		log.Printf("auto-detected forward_bind_addr: %s (saved to server.yaml)", cfg.ForwardBindAddr)
 		changed = true
 	}
-	if sc.SSHAddr == "" && cfg.SSHAddr != "" {
+	if sc.SSHAddr == "" && cfg.SSHAddr != "" && cfg.SSHAddr != "off" { // a one-off --ssh-addr off isn't persisted
 		sc.SSHAddr = cfg.SSHAddr
 		log.Printf("auto-set ssh_addr: %s (saved to server.yaml)", cfg.SSHAddr)
 		changed = true
@@ -166,19 +192,19 @@ func New(cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("load tokens: %w", err)
 	}
 
-	wm, err := NewWhitelistManager(WhitelistFile)
+	wm, err := NewWhitelistManager(cfg.WhitelistPath)
 	if err != nil {
 		log.Printf("warning: load whitelist: %v (IP whitelist disabled)", err)
 		wm, _ = NewWhitelistManager("")
 	}
 
-	fm, err := NewForwardsManager(ForwardsFile)
+	fm, err := NewForwardsManager(cfg.ForwardsPath)
 	if err != nil {
 		log.Printf("warning: load forwards: %v (direct forwards disabled)", err)
 		fm, _ = NewForwardsManager("")
 	}
 
-	km, err := NewSSHKeysManager(SSHKeysFile)
+	km, err := NewSSHKeysManager(cfg.SSHKeysPath)
 	if err != nil {
 		log.Printf("warning: load ssh keys: %v", err)
 		km, _ = NewSSHKeysManager("")
@@ -186,9 +212,12 @@ func New(cfg *Config) (*Server, error) {
 
 	var aclEngine *acl.Engine
 	if cfg.ACLPath != "" {
+		// Fail closed, but stay up: a broken acl.yaml must not silently mean
+		// "allow all", and refusing to start would take the dashboard down too.
 		aclEngine, err = acl.Load(cfg.ACLPath)
 		if err != nil {
-			log.Printf("warning: load ACL %s: %v (allowing all traffic)", cfg.ACLPath, err)
+			aclEngine.DenyAll()
+			log.Printf("ERROR: ACL %s is invalid (%v): denying all tunnel traffic until it is fixed (then reload with SIGHUP or restart)", cfg.ACLPath, err)
 		}
 	}
 
@@ -221,6 +250,9 @@ func New(cfg *Config) (*Server, error) {
 		limiter:         auth.NewRateLimiter(),
 		acl:             aclEngine,
 		metrics:         newMetrics(),
+		sessions:        newSessionSet(),
+		tunPreAuth:      make(chan struct{}, maxPreAuth),
+		sshPreAuth:      make(chan struct{}, maxPreAuth),
 		done:            make(chan struct{}),
 	}, nil
 }
@@ -239,7 +271,7 @@ func (s *Server) Start() error {
 	if s.cfg.UIOnly {
 		// ponytail: dev-only path, no TUN/TLS/control-socket/SSH — just the
 		// dashboard, so `server ui-dev` needs no root and no real deployment.
-		if s.cfg.MetricsAddr == "" {
+		if s.cfg.MetricsAddr == "" || s.cfg.MetricsAddr == "off" {
 			return fmt.Errorf("ui-only mode requires an HTTP API address")
 		}
 		log.Printf("ui-dev mode: dashboard only, no TUN/TLS tunnel")
@@ -268,7 +300,7 @@ func (s *Server) Start() error {
 		go s.watchExposed()
 	}
 
-	if s.cfg.MetricsAddr != "" {
+	if s.cfg.MetricsAddr != "off" {
 		go s.startHTTPAPI()
 	}
 
@@ -310,22 +342,11 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			select {
-			case <-s.done:
-				s.wg.Wait()
-				s.tun.Close()
-				os.Remove(SocketFile) //nolint:errcheck
-				return nil
-			default:
-				log.Printf("accept error: %v", err)
-				continue
-			}
-		}
-		go s.handleConn(conn)
-	}
+	acceptLoop(ln, s.tunPreAuth, s.done, s.handleConn)
+	s.wg.Wait()
+	s.tun.Close()
+	os.Remove(SocketFile) //nolint:errcheck
+	return nil
 }
 
 // Tokens returns the token manager (for CLI token sub-commands).
@@ -338,11 +359,18 @@ func (s *Server) ConnectedClients() []clientInfo { return s.clients.Snapshot() }
 func (s *Server) TokenManager() *auth.Manager { return s.tokens }
 
 // handleConn authenticates one client connection and starts forwarding.
-func (s *Server) handleConn(conn net.Conn) {
+// release frees the connection's pre-auth slot; it is called as soon as the
+// client has authenticated (or on return).
+func (s *Server) handleConn(conn net.Conn, release func()) {
 	s.wg.Add(1)
 	defer s.wg.Done()
+	defer release()
 	remoteIP, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
 	defer conn.Close()
+
+	// The TLS handshake and the AUTH frame must both arrive within the deadline;
+	// a peer that connects and says nothing is dropped instead of held forever.
+	_ = conn.SetDeadline(time.Now().Add(preAuthTimeout))
 
 	if s.limiter.IsBanned(remoteIP) {
 		log.Printf("blocked banned IP %s", remoteIP)
@@ -367,9 +395,9 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 
 	// Check IP whitelist first — whitelisted IPs connect without a token.
-	var clientName string
+	var clientName, via string
 	if wlName, ok := s.whitelist.Contains(remoteIP); ok {
-		clientName = wlName
+		clientName, via = wlName, viaWhitelist
 		log.Printf("whitelisted IP %s connected as %q", remoteIP, clientName)
 	} else {
 		tok, err := s.tokens.Validate(req.Token)
@@ -382,8 +410,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			return
 		}
 		s.limiter.Reset(remoteIP)
-		clientName = tok.Name
+		clientName, via = tok.Name, viaToken
 	}
+	_ = conn.SetDeadline(time.Time{}) // authenticated: the reaper/pings take over
+	release()
 
 	// Proxy mode: no TUN, no IP assignment — just TCP port forwarding.
 	if req.Mode == "proxy" {
@@ -391,11 +421,12 @@ func (s *Server) handleConn(conn net.Conn) {
 			log.Printf("send AUTH_OK (proxy) to %s: %v", clientName, err)
 			return
 		}
+		defer s.sessions.add(&session{name: clientName, via: via, mode: "proxy", remote: remoteIP, conn: conn})()
 		s.handleProxyConn(conn, clientName)
 		return
 	}
 
-	client, err := s.clients.Assign(clientName, conn)
+	client, err := s.clients.Assign(clientName, conn, s.cfg.MaxSessionsPerClient)
 	if err != nil {
 		log.Printf("assign IP for %s: %v", clientName, err)
 		_ = tunnel.WriteFrame(conn, protocol.TypeAuthFail,
@@ -403,6 +434,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 	defer s.clients.Remove(client.ip)
+	defer s.sessions.add(&session{name: clientName, via: via, mode: "tun", remote: remoteIP, conn: conn})()
 
 	s.metrics.IncConnected()
 	defer s.metrics.DecConnected()
@@ -452,6 +484,12 @@ func (s *Server) forwardToTUN(c *connectedClient) {
 				s.metrics.IncDropped()
 				continue
 			}
+			// ACL is checked on the way in, where the destination port is the
+			// service the device is reaching (not the port it chose for itself).
+			if s.acl != nil && !s.acl.Allow(c.name, payload) {
+				s.metrics.IncDropped()
+				continue
+			}
 			if _, err := s.tun.Write(payload); err != nil {
 				log.Printf("write to TUN: %v", err)
 				return
@@ -486,12 +524,6 @@ func (s *Server) routeFromTUN() {
 		destIP := fmt.Sprintf("%d.%d.%d.%d", pkt[16], pkt[17], pkt[18], pkt[19])
 		client := s.clients.GetByIP(destIP)
 		if client == nil {
-			continue
-		}
-
-		// Step 3: ACL enforcement.
-		if s.acl != nil && !s.acl.Allow(client.name, pkt) {
-			s.metrics.IncDropped()
 			continue
 		}
 

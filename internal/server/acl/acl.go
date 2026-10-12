@@ -41,6 +41,15 @@ func Load(path string) (*Engine, error) {
 	return e, e.Reload()
 }
 
+// DenyAll makes the engine refuse every device until a successful Reload.
+// Used when acl.yaml exists but can't be parsed.
+func (e *Engine) DenyAll() {
+	e.mu.Lock()
+	e.policy = Policy{DefaultPolicy: "deny"}
+	e.index = nil
+	e.mu.Unlock()
+}
+
 // Reload re-reads the ACL file from disk. Safe to call from a SIGHUP handler.
 func (e *Engine) Reload() error {
 	data, err := os.ReadFile(e.path)
@@ -77,13 +86,21 @@ func (e *Engine) Reload() error {
 	return nil
 }
 
-// Allow returns true if the given device is permitted to send pkt to the
-// server. pkt must be a valid IPv4 packet (at least 20 bytes).
+// Allow returns true if the given device may send pkt into the network.
+// pkt is a packet the device sent (client → network), so its destination
+// port is the service being reached. pkt must be a valid IPv4 packet.
 func (e *Engine) Allow(deviceName string, pkt []byte) bool {
 	if len(pkt) < 20 {
 		return false // too short to be a valid IPv4 packet; deny
 	}
+	proto, dstPort := extractProtoPort(pkt)
+	return e.AllowPort(deviceName, proto, dstPort)
+}
 
+// AllowPort applies the same policy to a connection the server opens on the
+// device's behalf (proxy mode, SSH direct-tcpip), so every access path is
+// checked against one rule set.
+func (e *Engine) AllowPort(deviceName, proto string, dstPort int) bool {
 	e.mu.RLock()
 	rule, hasRule := e.index[deviceName]
 	defaultAllow := e.policy.DefaultPolicy != "deny"
@@ -92,8 +109,6 @@ func (e *Engine) Allow(deviceName string, pkt []byte) bool {
 	if !hasRule {
 		return defaultAllow
 	}
-
-	proto, dstPort := extractProtoPort(pkt)
 
 	// Explicit deny list checked first.
 	for _, spec := range rule.Deny {

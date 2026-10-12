@@ -25,6 +25,7 @@ import (
 	"github.com/adishM98/auth-vpn/internal/client"
 	"github.com/adishM98/auth-vpn/internal/hub"
 	"github.com/adishM98/auth-vpn/internal/server"
+	"github.com/adishM98/auth-vpn/internal/tlsutil"
 	"github.com/adishM98/auth-vpn/internal/updater"
 )
 
@@ -68,11 +69,17 @@ func serverUIDevCmd() *cobra.Command {
 			if tokensPath == "" {
 				tokensPath = "./auth-vpn-dev-tokens.yaml"
 			}
+			// Every store is a local file: ui-dev must never edit a real
+			// server's whitelist, forwards or SSH keys in /etc/auth-vpn.
 			cfg := &server.Config{
-				Port:        7777, // cosmetic only — shown in the onboarding connect command; UIOnly mode never binds it
-				MetricsAddr: addr,
-				TokensPath:  tokensPath,
-				UIOnly:      true,
+				Port:            7777, // cosmetic only — shown in the onboarding connect command; UIOnly mode never binds it
+				MetricsAddr:     addr,
+				TokensPath:      tokensPath,
+				WhitelistPath:   "./auth-vpn-dev-whitelist.json",
+				ForwardsPath:    "./auth-vpn-dev-forwards.json",
+				SSHKeysPath:     "./auth-vpn-dev-ssh-keys.json",
+				ForwardBindAddr: "127.0.0.1",
+				UIOnly:          true,
 			}
 			srv, err := server.New(cfg)
 			if err != nil {
@@ -195,7 +202,9 @@ func serverStartCmd() *cobra.Command {
 				TLSKey:     server.KeyFile,
 				TokensPath: server.TokensFile,
 			}
-			if sc, err := server.LoadServerConfig(server.ServerConfigFile); err == nil {
+			sc, err := server.LoadServerConfig(server.ServerConfigFile)
+			switch {
+			case err == nil:
 				if !cmd.Flags().Changed("port") && sc.Port != 0 {
 					cfg.Port = sc.Port
 				}
@@ -221,6 +230,21 @@ func serverStartCmd() *cobra.Command {
 					cfg.SSHAddr = sc.SSHAddr
 				}
 				cfg.PushRoutes, cfg.PushDNS, cfg.NoPush, cfg.Expose = sc.PushRoutes, sc.PushDNS, sc.NoPush, sc.Expose
+				cfg.MaxSessionsPerClient = sc.MaxSessionsPerClient
+			case os.IsNotExist(err):
+				// Not installed: flags only.
+			default:
+				// Fail closed: running on with defaults would mean no API key
+				// (open admin API), no ACL and expose=all.
+				return fmt.Errorf("load %s: %w (fix the file or re-run `auth-vpn server install`)", server.ServerConfigFile, err)
+			}
+			if err == nil && !cmd.Flags().Changed("api-key") && cfg.APIKey == "" {
+				// Older installs may predate api_key. Never come up open: mint one.
+				if err := server.EnsureAPIKey(server.ServerConfigFile, &sc); err != nil {
+					return fmt.Errorf("%s has no api_key and one could not be saved: %w", server.ServerConfigFile, err)
+				}
+				cfg.APIKey = sc.APIKey
+				fmt.Fprintf(os.Stderr, "server.yaml had no api_key; generated one (see api_key in %s)\n", server.ServerConfigFile)
 			}
 			// Apply explicit flag overrides.
 			if cmd.Flags().Changed("subnet") {
@@ -243,6 +267,12 @@ func serverStartCmd() *cobra.Command {
 			}
 			if cmd.Flags().Changed("ssh-addr") {
 				cfg.SSHAddr = sshAddr
+				if sshAddr == "" {
+					cfg.SSHAddr = "off" // explicit empty means disabled, not "use the default"
+				}
+			}
+			if cmd.Flags().Changed("metrics-addr") && metricsAddr == "" {
+				cfg.MetricsAddr = "off"
 			}
 
 			srv, err := server.New(&cfg)
@@ -255,11 +285,11 @@ func serverStartCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&port, "port", "p", 7777, "Port to listen on")
 	cmd.Flags().StringVar(&subnet, "subnet", "", "VPN subnet CIDR (default 10.0.0.0/24)")
 	cmd.Flags().StringVar(&serverIP, "server-ip", "", "Server TUN IP (default 10.0.0.1)")
-	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", "", "Metrics/API listen address (default localhost:9100)")
+	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", "", "Metrics/API/dashboard listen address (default 0.0.0.0:9100; \"off\" or empty = disabled)")
 	cmd.Flags().StringVar(&aclPath, "acl", "", "Path to acl.yaml (empty = allow all)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "Bearer key for /api/* and /plugin/* (empty = no auth)")
 	cmd.Flags().StringVar(&forwardBind, "forward-bind", "", "IP to bind direct-forward listeners (e.g. 172.190.141.231); empty = all interfaces")
-	cmd.Flags().StringVar(&sshAddr, "ssh-addr", "", "Embedded SSH server address (e.g. :2222); empty = disabled")
+	cmd.Flags().StringVar(&sshAddr, "ssh-addr", "", "Embedded SSH server address (default :2222; \"off\" or empty = disabled)")
 	return cmd
 }
 
@@ -420,7 +450,7 @@ func serverClientsCmd() *cobra.Command {
 // ─── connect ─────────────────────────────────────────────────────────────────
 
 func connectCmd() *cobra.Command {
-	var token, apiKey, apiURL string
+	var token, apiKey, apiURL, fingerprint string
 	var apiPort int
 	var background, wait, insecure, reconnect, githubAction, noPushRoutes, noPushDNS bool
 	var forwardRules, extraRoutes []string
@@ -436,6 +466,7 @@ func connectCmd() *cobra.Command {
 				Background:  background,
 				Wait:        wait,
 				Insecure:    insecure,
+				Fingerprint: fingerprint,
 				Reconnect:   reconnect,
 				ExtraRoutes: extraRoutes,
 
@@ -485,16 +516,20 @@ func connectCmd() *cobra.Command {
 				if resolvedAPIURL == "" {
 					resolvedAPIURL = "http://localhost:" + strconv.Itoa(apiPort)
 				}
-				// Refuse plaintext HTTP to non-loopback hosts unless --insecure is set.
-				if err := checkAPIURLSafety(resolvedAPIURL, insecure); err != nil {
+				// The admin key never goes over plaintext HTTP to a remote host.
+				// Existing http:// settings keep working: the server answers https
+				// on the same port, so upgrade the scheme instead of failing.
+				resolvedAPIURL, err := secureAPIURL(resolvedAPIURL)
+				if err != nil {
 					return err
 				}
-				tok, name, err := generateEphemeralToken(resolvedAPIURL, apiKey, githubAction, insecure)
+				api := apiHTTPClient(insecure, fingerprint)
+				tok, name, err := generateEphemeralToken(api, resolvedAPIURL, apiKey, githubAction)
 				if err != nil {
 					return fmt.Errorf("generate ephemeral token: %w", err)
 				}
 				opts.Token = tok
-				defer revokeEphemeralToken(resolvedAPIURL, apiKey, name, insecure)
+				defer revokeEphemeralToken(api, resolvedAPIURL, apiKey, name)
 				reconnect = false // ephemeral tokens are single-use; reconnect would reuse a revoked token
 			}
 
@@ -527,6 +562,7 @@ func connectCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&background, "background", false, "Suppress interactive output and write PID state file")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until server is reachable before connecting (CI use)")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification")
+	cmd.Flags().StringVar(&fingerprint, "fingerprint", "", "Pin the server certificate (the SHA256:... fingerprint printed by server install); applies to the tunnel and the API")
 	cmd.Flags().BoolVar(&reconnect, "reconnect", true, "Auto-reconnect with exponential backoff on unexpected drop; use --reconnect=false to disable")
 	cmd.Flags().StringArrayVar(&forwardRules, "forward", nil, "Forward local port to remote (localPort:remoteHost:remotePort), e.g. 5432:10.8.0.1:5432")
 	cmd.Flags().BoolVar(&noPushRoutes, "no-push-routes", false, "Ignore routes pushed by the server (e.g. auto-detected Kubernetes service CIDR)")
@@ -546,57 +582,41 @@ func connectCmd() *cobra.Command {
 	return cmd
 }
 
-// checkAPIURLSafety returns an error if the URL would transmit the API key
-// over plaintext HTTP to a non-loopback address, unless insecure is true.
-func checkAPIURLSafety(rawURL string, insecure bool) error {
+// secureAPIURL returns a URL that never carries the API key in plaintext to a
+// remote host. http:// to a non-loopback host is upgraded to https:// on the
+// same port (the server's API port serves both); --insecure does not lift
+// this, it only relaxes certificate checks, never encryption.
+func secureAPIURL(rawURL string) (string, error) {
 	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid --api-url %q: %w", rawURL, err)
+	if err != nil || u.Host == "" {
+		return "", fmt.Errorf("invalid --api-url %q", rawURL)
 	}
-	if strings.ToLower(u.Scheme) == "https" {
-		return nil // HTTPS is always safe
-	}
-	if insecure {
-		return nil // user has explicitly opted in to insecure mode
+	if !strings.EqualFold(u.Scheme, "http") {
+		return rawURL, nil
 	}
 	host := u.Hostname()
-	ip := net.ParseIP(host)
-	loopback := host == "localhost" ||
-		(ip != nil && ip.IsLoopback())
-	if !loopback {
-		return fmt.Errorf(
-			"refusing to send API key over plaintext HTTP to %q\n"+
-				"Options:\n"+
-				"  1. Pass --insecure to allow plaintext HTTP (only on trusted networks)\n"+
-				"  2. Use an SSH tunnel: ssh -L 9100:localhost:9100 user@<vm> -N &\n"+
-				"  3. Use HTTPS: --api-url https://<host>:9100",
-			host,
-		)
+	if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
+		return rawURL, nil // stays on this machine (e.g. an SSH tunnel)
 	}
-	return nil
+	u.Scheme = "https"
+	fmt.Fprintf(os.Stderr, "note: using %s instead of plain http so the API key is encrypted\n", u)
+	return u.String(), nil
 }
 
 // generateEphemeralToken calls POST /api/tokens on the server to create a
 // short-lived token for this specific connection. Used by --api-key and
 // --github-action so each parallel CI job gets its own independent token.
-func generateEphemeralToken(apiURL, apiKey string, useGithubEnv, insecure bool) (tokenValue, tokenName string, err error) {
-	var name string
-	if useGithubEnv {
-		// Build a unique name from GitHub's own env vars so the token is
-		// identifiable in the dashboard: e.g. "gh-12345678-integration-1"
-		runID := os.Getenv("GITHUB_RUN_ID")
-		job := os.Getenv("GITHUB_JOB")
-		attempt := os.Getenv("GITHUB_RUN_ATTEMPT")
-		if runID != "" {
-			name = fmt.Sprintf("gh-%s-%s-%s", runID, job, attempt)
-		}
+func generateEphemeralToken(c *http.Client, apiURL, apiKey string, useGithubEnv bool) (tokenValue, tokenName string, err error) {
+	// A random suffix keeps names unique: matrix legs share GITHUB_RUN_ID,
+	// GITHUB_JOB and GITHUB_RUN_ATTEMPT, and revocation is by name.
+	b := make([]byte, 4)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", fmt.Errorf("random name: %w", err)
 	}
-	if name == "" {
-		b := make([]byte, 6)
-		if _, err = rand.Read(b); err != nil {
-			return "", "", fmt.Errorf("random name: %w", err)
-		}
-		name = fmt.Sprintf("ephemeral-%x", b)
+	name := fmt.Sprintf("ephemeral-%x", b)
+	if runID := os.Getenv("GITHUB_RUN_ID"); useGithubEnv && runID != "" {
+		// Identifiable in the dashboard, e.g. "gh-12345678-integration-1-9f3a1c2e".
+		name = fmt.Sprintf("gh-%s-%s-%s-%x", runID, os.Getenv("GITHUB_JOB"), os.Getenv("GITHUB_RUN_ATTEMPT"), b)
 	}
 
 	type tokenRequest struct {
@@ -616,7 +636,6 @@ func generateEphemeralToken(apiURL, apiKey string, useGithubEnv, insecure bool) 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	c := apiHTTPClient(insecure)
 	resp, err := c.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("reach server API: %w", err)
@@ -641,24 +660,27 @@ func generateEphemeralToken(apiURL, apiKey string, useGithubEnv, insecure bool) 
 	return result.Token, result.Name, nil
 }
 
-// apiHTTPClient returns an HTTP client for token API calls.
-// When insecure is true it skips TLS verification — needed for self-signed certs
-// on the auth-vpn API (which reuses the same cert as the tunnel).
-func apiHTTPClient(insecure bool) *http.Client {
-	if !insecure {
-		return &http.Client{Timeout: 10 * time.Second}
+// apiHTTPClient returns an HTTP client for token API calls. The API reuses the
+// tunnel's self-signed cert, so --fingerprint pins it; --insecure skips
+// verification (no pinning, dev only). Redirects are never followed, so the
+// key can't be bounced to another host.
+func apiHTTPClient(insecure bool, fingerprint string) *http.Client {
+	c := &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	return &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
+	switch {
+	case fingerprint != "":
+		c.Transport = &http.Transport{TLSClientConfig: tlsutil.PinnedTLSConfig(fingerprint)}
+	case insecure:
+		c.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec
 	}
+	return c
 }
 
 // revokeEphemeralToken deletes the token created by generateEphemeralToken.
 // Called via defer so it runs when the tunnel drops, even on error paths.
-func revokeEphemeralToken(apiURL, apiKey, name string, insecure bool) {
+func revokeEphemeralToken(c *http.Client, apiURL, apiKey, name string) {
 	// url.PathEscape handles job IDs with dots, spaces, or slashes that would
 	// otherwise escape into a different URL path segment.
 	req, err := http.NewRequest(http.MethodDelete, apiURL+"/api/tokens/"+url.PathEscape(name), nil)
@@ -666,7 +688,7 @@ func revokeEphemeralToken(apiURL, apiKey, name string, insecure bool) {
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	if resp, err := apiHTTPClient(insecure).Do(req); err == nil {
+	if resp, err := c.Do(req); err == nil {
 		resp.Body.Close()
 	}
 }
@@ -873,6 +895,10 @@ func hubServeCmd() *cobra.Command {
 				return fmt.Errorf("loading hub config: %w", err)
 			}
 			addr := fmt.Sprintf("%s:%d", bind, port)
+			if ip := net.ParseIP(bind); cfg.HubKey == "" && bind != "localhost" && (ip == nil || !ip.IsLoopback()) {
+				// The hub holds every server's API key; never expose it keyless.
+				return fmt.Errorf("refusing to bind %s without hub_key: set hub_key in %s first", addr, hub.ConfigPath())
+			}
 			fmt.Printf("Hub dashboard → http://%s\n", addr)
 			fmt.Printf("Config file   → %s\n", hub.ConfigPath())
 			if len(cfg.Servers) == 0 {

@@ -9,7 +9,7 @@ if [ ! -f /etc/auth-vpn/server.yaml ]; then
     echo "=== First run: initializing auth-vpn server ==="
     auth-vpn server install --port "$PORT"
     echo ""
-    echo ">>> Copy the token above — you need it to connect from your laptop <<<"
+    echo ">>> Admin token and API key: cat /etc/auth-vpn/initial-credentials (inside the container) <<<"
     echo ""
 fi
 
