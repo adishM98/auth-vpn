@@ -57,11 +57,20 @@ func TestACL(t *testing.T) {
 		}
 	})
 
-	t.Run("a malformed file is an error, not allow-all", func(t *testing.T) {
+	t.Run("a malformed file is an error and DenyAll blocks everyone until it's fixed", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "acl.yaml")
 		_ = os.WriteFile(path, []byte("rules: [unclosed"), 0o600)
-		if _, err := Load(path); err == nil {
+		e, err := Load(path)
+		if err == nil {
 			t.Fatal("malformed acl.yaml loaded without error")
+		}
+		e.DenyAll()
+		if e.AllowPort("anyone", "tcp", 5432) {
+			t.Fatal("traffic allowed with a broken ACL")
+		}
+		_ = os.WriteFile(path, []byte("default_policy: allow\n"), 0o600)
+		if err := e.Reload(); err != nil || !e.AllowPort("anyone", "tcp", 5432) {
+			t.Fatalf("reload after fixing the file: %v", err)
 		}
 	})
 }

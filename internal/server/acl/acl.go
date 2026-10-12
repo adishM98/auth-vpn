@@ -41,6 +41,15 @@ func Load(path string) (*Engine, error) {
 	return e, e.Reload()
 }
 
+// DenyAll makes the engine refuse every device until a successful Reload.
+// Used when acl.yaml exists but can't be parsed.
+func (e *Engine) DenyAll() {
+	e.mu.Lock()
+	e.policy = Policy{DefaultPolicy: "deny"}
+	e.index = nil
+	e.mu.Unlock()
+}
+
 // Reload re-reads the ACL file from disk. Safe to call from a SIGHUP handler.
 func (e *Engine) Reload() error {
 	data, err := os.ReadFile(e.path)

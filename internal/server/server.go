@@ -62,7 +62,8 @@ type Config struct {
 	SSHAddr         string // embedded SSH server, e.g. ":2222"; empty = default, "off" = disabled
 
 	// MaxSessionsPerClient caps TUN leases held by one name (token or
-	// whitelist entry). 0 = default (32); negative = unlimited.
+	// whitelist entry), so one credential can't take the whole address pool.
+	// 0 = unlimited (the default, as before).
 	MaxSessionsPerClient int
 
 	// Store paths; empty = the /etc/auth-vpn defaults. ui-dev points these at
@@ -103,9 +104,6 @@ func (cfg *Config) applyDefaults() {
 	}
 	if cfg.SSHAddr == "" {
 		cfg.SSHAddr = ":2222"
-	}
-	if cfg.MaxSessionsPerClient == 0 {
-		cfg.MaxSessionsPerClient = defaultMaxSessionsPerClient
 	}
 	if cfg.WhitelistPath == "" {
 		cfg.WhitelistPath = WhitelistFile
@@ -214,10 +212,12 @@ func New(cfg *Config) (*Server, error) {
 
 	var aclEngine *acl.Engine
 	if cfg.ACLPath != "" {
-		// Fail closed: a broken acl.yaml must not silently mean "allow all".
+		// Fail closed, but stay up: a broken acl.yaml must not silently mean
+		// "allow all", and refusing to start would take the dashboard down too.
 		aclEngine, err = acl.Load(cfg.ACLPath)
 		if err != nil {
-			return nil, fmt.Errorf("load ACL %s: %w", cfg.ACLPath, err)
+			aclEngine.DenyAll()
+			log.Printf("ERROR: ACL %s is invalid (%v): denying all tunnel traffic until it is fixed (then reload with SIGHUP or restart)", cfg.ACLPath, err)
 		}
 	}
 

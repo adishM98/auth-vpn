@@ -156,7 +156,7 @@ curl -X DELETE http://localhost:9100/api/ssh-keys/my-app
 
 ## ACL rules
 
-Create `/etc/auth-vpn/acl.yaml` to restrict what each device can reach. Rules match the destination port of traffic the device sends, and apply the same way in TUN mode, proxy mode and over SSH. A file that can't be parsed stops the server from starting rather than allowing everything:
+Create `/etc/auth-vpn/acl.yaml` to restrict what each device can reach. Rules match the destination port of traffic the device sends, and apply the same way in TUN mode, proxy mode and over SSH. A file that can't be parsed blocks all tunnel traffic (and says so in the log) until you fix it and reload with `kill -HUP` or a restart, rather than silently allowing everything:
 
 ```yaml
 default_policy: deny

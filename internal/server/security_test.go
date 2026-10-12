@@ -34,7 +34,7 @@ func newTestServer(t *testing.T) *Server {
 	}
 	wl, _ := NewWhitelistManager("")
 	return &Server{
-		cfg:         &Config{Subnet: "10.8.0.0/24", ServerIP: "10.8.0.1", MaxSessionsPerClient: defaultMaxSessionsPerClient, APIKey: "k"},
+		cfg:         &Config{Subnet: "10.8.0.0/24", ServerIP: "10.8.0.1", APIKey: "k"},
 		tokens:      tm,
 		whitelist:   wl,
 		clients:     newClientRegistry("10.8.0"),

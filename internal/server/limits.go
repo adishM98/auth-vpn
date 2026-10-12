@@ -14,9 +14,6 @@ const (
 	// maxPreAuth caps connections that have not authenticated yet, per listener.
 	// Past it, new connections are closed immediately instead of queuing forever.
 	maxPreAuth = 256
-	// defaultMaxSessionsPerClient caps TUN leases one name can hold, so a single
-	// token or whitelist entry can't take the whole 253-address pool.
-	defaultMaxSessionsPerClient = 32
 )
 
 // acceptLoop accepts connections until ln is closed, handing each one to
