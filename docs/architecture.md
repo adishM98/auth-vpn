@@ -26,7 +26,6 @@ The jobs share code for the wire format (`pkg/protocol`, `internal/tunnel`), tok
 ## 2. The whole building
 
 ![Who talks to whom](diagrams/avpn-architecture-map.svg)
-<sub>Editable source: [avpn-architecture-map.excalidraw](diagrams/avpn-architecture-map.excalidraw)</sub>
 
 Three zones, read left to right:
 - **Outside:** laptops, CI runners, SSH clients, whitelisted machines, the admin's browser.
