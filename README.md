@@ -3,7 +3,6 @@
 **One small doorman in front of your private network.** A self-hosted VPN for developers, QA and CI, shipped as a single Go binary: one open port, one token per person, and every app on your laptop reaches private databases and services as if it were sitting next to them.
 
 ![auth-vpn: outside, the doorman, and your private network](docs/diagrams/avpn-big-picture.svg)
-<sub>Editable source: [avpn-big-picture.excalidraw](docs/diagrams/avpn-big-picture.excalidraw) · open it at [excalidraw.com](https://excalidraw.com)</sub>
 
 ---
 
@@ -95,7 +94,6 @@ Only `10.8.0.0/24`, plus any routes you or the server add, goes through the tunn
 ### Picture 1: who talks to whom
 
 ![auth-vpn architecture map](docs/diagrams/avpn-architecture-map.svg)
-<sub>Editable source: [avpn-architecture-map.excalidraw](docs/diagrams/avpn-architecture-map.excalidraw)</sub>
 
 Read it left to right: **outside → the server's rooms → the private network**. The server has one front door (`:7777`, TLS 1.3) plus a few side rooms: an SSH window, side doors for whitelisted IPs, and a control room (the dashboard and API on `:9100`).
 

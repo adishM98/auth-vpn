@@ -5,7 +5,6 @@
 **A story first.** Your team moves its services into a cluster. Now Postgres, Grafana and the internal APIs all have `10.0.x.x` ClusterIPs that nobody outside the cluster can reach. The usual fixes are a public LoadBalancer per service (front doors left open) or VNet peering (a new road between two cities). auth-vpn takes a third way: run **one small pod inside the cluster** and let it walk you in.
 
 ![Reaching a service in the cluster, before vs after](diagrams/avpn-k8s-before-after.svg)
-<sub>Editable source: [avpn-k8s-before-after.excalidraw](diagrams/avpn-k8s-before-after.excalidraw)</sub>
 
 The whole flow, in order:
 
