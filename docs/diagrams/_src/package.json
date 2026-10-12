@@ -1,0 +1,8 @@
+{
+  "name": "auth-vpn-diagrams",
+  "private": true,
+  "description": "Generates the hand-drawn SVG + .excalidraw diagrams in docs/diagrams",
+  "type": "module",
+  "scripts": { "build": "node gen.mjs specs.mjs .." },
+  "dependencies": { "roughjs": "4.6.6" }
+}

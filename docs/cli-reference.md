@@ -1,5 +1,14 @@
 # CLI Reference
 
+← [README](../README.md)
+
+How `auth-vpn connect` decides what you meant, before it touches the network:
+
+![connect: what did you mean](diagrams/avpn-connect-decide.svg)
+
+> [!IMPORTANT]
+> Tunnel (TUN) mode needs `sudo`: creating the virtual network card is root-only. Proxy mode (`--forward`) doesn't.
+
 ## Server
 
 ```bash
@@ -42,26 +51,26 @@ auth-vpn server tokens revoke --name "dev-alice"
 
 ```bash
 # Connect interactively (Ctrl+C to disconnect)
-auth-vpn connect <server-ip>:7777 --token <token>
+sudo auth-vpn connect <server-ip>:7777 --token <token>
 
 # Connect using a saved profile
-auth-vpn connect staging
+sudo auth-vpn connect staging
 
 # Background mode (survives terminal close)
-auth-vpn connect staging --background
+sudo auth-vpn connect staging --background
 
 # Background + auto-reconnect on unexpected drop (exponential backoff, max 2 min)
-auth-vpn connect staging --background --reconnect
+sudo auth-vpn connect staging --background --reconnect
 
 # Wait until server is reachable before connecting (useful in CI)
-auth-vpn connect staging --background --wait
+sudo auth-vpn connect staging --background --wait
 
 # Route additional CIDRs through the tunnel (e.g. k8s service subnet)
-auth-vpn connect staging --route 10.0.0.0/16
+sudo auth-vpn connect staging --route 10.0.0.0/16
 
 # Ignore routes / split DNS the server pushes (e.g. auto-detected k8s service CIDR + *.cluster.local)
-auth-vpn connect staging --no-push-routes
-auth-vpn connect staging --no-push-dns
+sudo auth-vpn connect staging --no-push-routes
+sudo auth-vpn connect staging --no-push-dns
 
 # GitHub Actions: auto-mint a unique ephemeral token per job (reads AUTH_VPN_API_KEY env var)
 # Run with & so the step doesn't block; use `auth-vpn disconnect` at the end to revoke the token
@@ -80,13 +89,13 @@ Use `--forward` instead of a TUN tunnel. auth-vpn binds a local port and forward
 
 ```bash
 # Forward local 5432 → postgres on the VM, local 6379 → redis on the VM
-auth-vpn connect <server-ip>:7777 --token <token> \
+sudo auth-vpn connect <server-ip>:7777 --token <token> \
   --forward 5432:10.8.0.1:5432 \
   --forward 6379:10.8.0.1:6379 \
   --background --reconnect
 
 # Multiple forwards, background + auto-reconnect
-auth-vpn connect staging \
+sudo auth-vpn connect staging \
   --forward 5432:10.8.0.1:5432 \
   --forward 3306:10.8.0.1:3306 \
   --forward 27017:10.8.0.1:27017 \

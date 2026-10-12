@@ -1,7 +1,8 @@
 # auth-vpn — Installation Guide
 
-A lightweight self-hosted VPN tunnel. Install once, connect from anywhere —
-every application on the machine routes through the tunnel automatically.
+← [README](README.md)
+
+A lightweight self-hosted VPN tunnel. Install once, connect from anywhere, and every application on the machine routes through the tunnel automatically.
 
 > **Internet speed is not affected.** auth-vpn is a split-tunnel VPN — only traffic to `10.8.0.0/24` goes through the tunnel. All other traffic (browsing, downloads, Slack) uses your normal connection unchanged.
 
@@ -9,15 +10,9 @@ every application on the machine routes through the tunnel automatically.
 
 ## How it works
 
-```
-VM (any containers)  ← auth-vpn server (one port open: 7777)
-     │
-     │  encrypted TLS 1.3 tunnel
-     │
-     ├── Dev laptop       (auth-vpn client)
-     ├── QA laptop        (auth-vpn client)
-     └── client VM       (auth-vpn client)
-```
+Think of the server as a **doorman** standing next to your containers. It's the only thing with an open port. Everyone with a wristband (a token) gets walked through a private, encrypted hallway to the services behind it.
+
+![auth-vpn: outside, the doorman, and your private network](docs/diagrams/avpn-big-picture.svg)
 
 Every container running on the VM is reachable through the tunnel:
 
@@ -52,12 +47,17 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 Then connect:
 
 ```bash
-auth-vpn connect 20.98.154.174:7777 --token abc123xyz
+sudo auth-vpn connect 20.98.154.174:7777 --token abc123xyz
 ```
 
 ---
 
 ## How the installer works
+
+What `server install` sets up, in order:
+
+![Moving-in day: what server install does](docs/diagrams/avpn-install.svg)
+
 
 ```
 curl ... | bash
@@ -147,13 +147,13 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 
 ```bash
 # Interactive — Ctrl+C or auth-vpn disconnect to stop
-auth-vpn connect 20.98.154.174:7777 --token abc123xyz
+sudo auth-vpn connect 20.98.154.174:7777 --token abc123xyz
 
 # Background — survives terminal close, no speed impact on other traffic
-auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background
+sudo auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background
 
 # Background + auto-reconnect on unexpected drop
-auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
+sudo auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
 ```
 
 **Save a profile so you never type the token again:**
@@ -164,8 +164,8 @@ auth-vpn profile save staging \
   --token abc123xyz
 
 # From now on:
-auth-vpn connect staging
-auth-vpn connect staging --background --reconnect
+sudo auth-vpn connect staging
+sudo auth-vpn connect staging --background --reconnect
 ```
 
 ### Stopping the tunnel
@@ -208,7 +208,7 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
   | sudo bash
 
 # Connect in background — stays alive after SSH session ends
-auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
+sudo auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
 ```
 
 Deploy from Mac (VM needs nothing):
@@ -216,7 +216,7 @@ Deploy from Mac (VM needs nothing):
 ```bash
 make deploy-client VM=azureuser@<other-vm-ip>
 ssh azureuser@<other-vm-ip>
-auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
+sudo auth-vpn connect 20.98.154.174:7777 --token abc123xyz --background --reconnect
 ```
 
 ---
@@ -284,7 +284,7 @@ Intended for VMs, PaaS services, and CI runners with known static IPs.
 
 Once whitelisted, the machine can connect with no `--token`:
 ```bash
-auth-vpn connect 20.98.154.174:7777   # IP is checked, token skipped
+sudo auth-vpn connect 20.98.154.174:7777   # IP is checked, token skipped
 ```
 
 ---
@@ -540,7 +540,7 @@ After `make release`, the curl one-liners above automatically pick up the new ve
 | Dev / QA | `sudo auth-vpn update` | Update client to latest release |
 | DevOps | `curl ... \| sudo bash -s -- --server` | Once per VM that has containers |
 | DevOps | `make deploy-client VM=user@host` | Once per additional VM (alternative) |
-| Dev / QA | `curl ... \| sudo bash` then `auth-vpn connect staging` | Once per laptop |
+| Dev / QA | `curl ... \| sudo bash` then `sudo auth-vpn connect staging` | Once per laptop |
 | Dev / QA | `auth-vpn disconnect` | When done for the day |
 | DevOps | `auth-vpn server tokens add --name x` | Onboarding new team member (one token per person) |
 | DevOps | `auth-vpn server tokens revoke --name x` | Offboarding |

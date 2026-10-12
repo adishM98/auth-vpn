@@ -1,5 +1,11 @@
 # Server Features
 
+← [README](../README.md)
+
+The server is a building with a front door (the tunnel on `:7777`) and a few **side rooms** for everything else: the dashboard and API, the IP whitelist, direct forwards, the SSH window and ACL rules. This page walks through each room.
+
+![Inside the server](diagrams/avpn-server-rooms.svg)
+
 ## Web dashboard
 
 After `server install`, the dashboard is available on port `9100`, which serves both `http://` and `https://`:
@@ -11,7 +17,10 @@ After `server install`, the dashboard is available on port `9100`, which serves 
 - **SSH Keys**: generate server-side RSA keypairs or register existing public keys for SSH tunnel auth
 - **Direct Forwards**: expose backend ports to whitelisted IPs — no auth-vpn client needed
 
-How to reach it:
+How to reach it: one port, two protocols.
+
+![How to reach the dashboard](diagrams/avpn-dashboard-access.svg)
+
 
 | From | URL |
 |---|---|
@@ -54,7 +63,7 @@ curl -X DELETE http://localhost:9100/api/whitelist/my-vm
 
 Whitelisted IPs can also connect via the auth-vpn client without `--token`:
 ```bash
-auth-vpn connect <server-ip>:7777   # no --token needed
+sudo auth-vpn connect <server-ip>:7777   # no --token needed
 ```
 
 ---

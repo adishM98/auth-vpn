@@ -1,6 +1,15 @@
 # Deploying auth-vpn on Kubernetes
 
-Run auth-vpn as a pod inside your cluster so any laptop (or CI runner) can reach every ClusterIP service without exposing public LoadBalancer IPs for each one.
+← [README](../README.md) · how it works inside: [architecture.md](architecture.md)
+
+**A story first.** Your team moves its services into a cluster. Now Postgres, Grafana and the internal APIs all have `10.0.x.x` ClusterIPs that nobody outside the cluster can reach. The usual fixes are a public LoadBalancer per service (front doors left open) or VNet peering (a new road between two cities). auth-vpn takes a third way: run **one small pod inside the cluster** and let it walk you in.
+
+![Reaching a service in the cluster, before vs after](diagrams/avpn-k8s-before-after.svg)
+<sub>Editable source: [avpn-k8s-before-after.excalidraw](diagrams/avpn-k8s-before-after.excalidraw)</sub>
+
+The whole flow, in order:
+
+![Kubernetes deployment: who does what](diagrams/avpn-k8s-deploy.svg)
 
 ---
 
@@ -25,30 +34,13 @@ kubectl get ns <namespace> -o jsonpath='{.metadata.labels}'
 
 ---
 
-## How it works
+## How it works: the pod speaks for you
 
-```
-Your Laptop / CI
-  │
-  │  TLS on port 7777
-  ▼
-auth-vpn LoadBalancer IP
-  │
-  │  auth-vpn pod (your namespace)
-  │  Pod IP: <Azure/GKE/EKS CNI IP>
-  │  TUN interface: 10.8.0.1/24
-  │  iptables MASQUERADE active
-  │
-  ├──► service-a   ClusterIP 10.0.x.x:port
-  ├──► service-b   ClusterIP 10.0.x.x:port
-  └──► any other ClusterIP service
-```
+Your laptop's packets enter the pod through the tunnel and leave it into the cluster network. The one trick is the **return address**:
 
-**Why iptables MASQUERADE is needed**
+![Why the pod must change the return address](diagrams/avpn-masquerade.svg)
 
-When your laptop sends a packet to a ClusterIP (e.g. `10.0.101.88`), the source IP is your VPN IP (`10.8.0.2`). Kubernetes has no route back to `10.8.0.0/24`, so the reply is dropped.
-
-MASQUERADE rewrites the source IP to the pod's real CNI IP before the packet leaves the pod. The target service replies to the pod, the pod un-NATs it, and the reply travels back through the tunnel to your laptop — transparently.
+When your laptop sends a packet to a ClusterIP (e.g. `10.0.42.5`), the sender is your VPN address (`10.8.0.2`). The cluster has no route back to `10.8.0.0/24`, so the reply is lost. The container's entrypoint adds one `iptables` **MASQUERADE** rule: anything leaving the pod from a VPN address gets the pod's own IP as its return address. conntrack swaps it back when the reply arrives. **Anything the pod can reach, you can reach.** That includes ClusterIPs, pod IPs and peered networks, which is why no VNet peering is needed.
 
 ---
 
@@ -103,7 +95,9 @@ Lost it? Create a new one from the dashboard. Alternatively, run `kubectl exec -
 sudo auth-vpn connect <LB-IP>:7777 --token <TOKEN> --background
 ```
 
-That's it. On connect the server **pushes** two things, auto-detected from inside the pod:
+That's it. Like a hotel front desk handing you a **map** and a **phone directory** at check-in, the server **pushes** two things it detected from inside the pod:
+
+![The push, end to end](diagrams/avpn-k8s-push.svg)
 
 | Pushed | Detected from | Effect on your laptop |
 |---|---|---|
@@ -121,6 +115,10 @@ The connect output lists what was applied:
 kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_PUSH_ROUTES=10.0.0.0/16,10.224.0.0/12
 ```
 
+Who decides what gets pushed? The first layer that has an answer wins:
+
+![Who decides what to push](diagrams/avpn-push-precedence.svg)
+
 **Opt out** — per client with `--no-push-routes` / `--no-push-dns`, or server-wide with `no_push: true` in `/etc/auth-vpn/server.yaml`. Then route manually as before: `--route <cidr>` (repeatable).
 
 **Platform notes**
@@ -132,14 +130,18 @@ kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_PUSH_ROUTES=10.0.0.0/16,10.
 
 ## Put only some services behind auth-vpn (labeled mode)
 
-By default, everything the pod can reach is reachable through the tunnel. To expose **only chosen Services**, for example Grafana, while every other Service stays exactly as it is, switch to labeled mode:
+By default, everything the pod can reach is reachable through the tunnel. Often you want the opposite: **one** private Service (say Grafana) behind the VPN, and everything else exactly as it is. Think of a hotel key card that only opens the rooms you booked:
+
+![Labeled mode: only one Service behind auth-vpn](diagrams/avpn-one-service.svg)
+
+Switch on labeled mode, then opt Services in:
 
 ```bash
 # 1. turn it on (server-wide)
 kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_EXPOSE=labeled
 
 # 2. opt Services in, in any namespace
-kubectl label svc grafana-lb -n default auth-vpn.io/expose=true
+kubectl label svc grafana -n monitoring auth-vpn.io/expose=true
 ```
 
 What changes:
@@ -152,6 +154,10 @@ What changes:
 | Unlabelled Services | reachable | dropped, even if a client adds `--route` |
 | auth-vpn's own dashboard | `http://10.8.0.1:9100/ui` over the VPN | still reachable at `http://10.8.0.1:9100/ui` over the VPN (port 9100 only; API key still required) |
 
+How the pod decides, packet by packet:
+
+![Labeled mode: what gets through](diagrams/avpn-labeled-mode.svg)
+
 - **Enforced by auth-vpn itself.** No NetworkPolicy or policy engine is needed, so it works on any cluster, including ones where `networkPolicy` is `none`.
 - **Kept up to date.** The pod re-lists labelled Services every 30 s (via the `auth-vpn-read-services` ClusterRole in `k8s/rbac.yaml`). New labels are enforced within 30 s. Clients get new routes on their next reconnect.
 - **Fail closed.** If the API is unreachable, the last good list is kept. Before the first successful list, only cluster DNS is allowed.
@@ -163,12 +169,18 @@ What changes:
 Labelling doesn't change the Service itself. If it should no longer be public, make it ClusterIP-only yourself (it keeps the same ClusterIP):
 
 ```bash
-kubectl patch svc grafana-lb -n default --type=json -p '[
+kubectl patch svc grafana -n monitoring --type=json -p '[
   {"op":"replace","path":"/spec/type","value":"ClusterIP"},
   {"op":"remove","path":"/spec/ports/0/nodePort"}]'
 ```
 
-Add `--dry-run=server` first to preview it. Then connect and open `http://grafana-lb.default.svc.cluster.local`.
+Add `--dry-run=server` first to preview it. Then connect and open `http://grafana.monitoring.svc.cluster.local`.
+
+> [!TIP]
+> **Recap**
+> - The pod pushes a route for the service range and split DNS for `*.cluster.local`. Clients need **v2.6.0+**.
+> - Labeled mode = only labelled Services are reachable, enforced per packet and per proxy dial, failing closed.
+> - Labelling never changes the Service. Making it private is a separate `kubectl patch`.
 
 ---
 
@@ -226,7 +238,11 @@ kubectl exec -n auth-vpn deploy/auth-vpn -- auth-vpn server tokens revoke --name
 
 ## Web dashboard
 
-The dashboard shows live connected clients, traffic, tokens, IP whitelist, SSH keys and direct forwards. Port `9100` speaks **both `http://` and `https://`**. Plain http is served only over private paths (localhost and the VPN). From anywhere else, http redirects to https, so the API key never crosses the internet unencrypted.
+The dashboard shows live connected clients, traffic, tokens, IP whitelist, SSH keys and direct forwards. Port `9100` speaks **both `http://` and `https://`**:
+
+![How to reach the dashboard](diagrams/avpn-dashboard-access.svg)
+
+Plain http is served only over private paths (localhost and the VPN). From anywhere else, http redirects to https, so the API key never crosses the internet unencrypted.
 
 | How you reach it | URL | Needs |
 |---|---|---|
