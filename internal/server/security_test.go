@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -345,4 +346,46 @@ func TestDisableSwitches(t *testing.T) {
 	if cfg.WhitelistPath != WhitelistFile {
 		t.Fatalf("default whitelist path = %q", cfg.WhitelistPath)
 	}
+}
+
+func TestUpgradeCompatibility(t *testing.T) {
+	create := func(s *Server, name string) (int, string) {
+		r := httptest.NewRequest(http.MethodPost, "/api/tokens", strings.NewReader(`{"name":"`+name+`"}`))
+		r.Header.Set("Authorization", "Bearer k")
+		w := httptest.NewRecorder()
+		s.withAuth(s.handleAPITokens)(w, r)
+		var body struct{ Name string }
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return w.Code, body.Name
+	}
+
+	t.Run("colliding CI token names from older CLIs get a suffix, not an error", func(t *testing.T) {
+		s := newTestServer(t)
+		if code, _ := create(s, "gh-1-build-1"); code != http.StatusCreated {
+			t.Fatal(code)
+		}
+		code, name := create(s, "gh-1-build-1")
+		if code != http.StatusCreated || name == "gh-1-build-1" || !strings.HasPrefix(name, "gh-1-build-1-") {
+			t.Fatalf("second matrix leg: %d %q", code, name)
+		}
+	})
+
+	t.Run("a duplicate human-chosen name is still a conflict", func(t *testing.T) {
+		s := newTestServer(t)
+		create(s, "alice")
+		if code, _ := create(s, "alice"); code != http.StatusConflict {
+			t.Fatalf("status %d, want 409", code)
+		}
+	})
+
+	t.Run("the bare key in Authorization still works", func(t *testing.T) {
+		s := newTestServer(t)
+		r := httptest.NewRequest(http.MethodGet, "/api/tokens", nil)
+		r.Header.Set("Authorization", "k")
+		w := httptest.NewRecorder()
+		s.withAuth(s.handleAPITokens)(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status %d", w.Code)
+		}
+	})
 }

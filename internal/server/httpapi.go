@@ -1,8 +1,10 @@
 package server
 
 import (
+	"crypto/rand"
 	"crypto/subtle"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
@@ -152,7 +154,15 @@ func (s *Server) handleAPITokens(w http.ResponseWriter, r *http.Request) {
 			t := time.Now().UTC().Add(d)
 			expiresAt = &t
 		}
-		raw, err := s.tokens.Add(body.Name, expiresAt, body.OneTime)
+		name := body.Name
+		raw, err := s.tokens.Add(name, expiresAt, body.OneTime)
+		// Older CLIs name CI tokens gh-RUN-JOB-ATTEMPT, which repeats across
+		// matrix legs. They revoke by the name we return, so give a colliding
+		// ephemeral name a suffix instead of failing the job.
+		for i := 0; errors.Is(err, auth.ErrNameTaken) && isEphemeralName(body.Name) && i < 5; i++ {
+			name = body.Name + "-" + randSuffix()
+			raw, err = s.tokens.Add(name, expiresAt, body.OneTime)
+		}
 		if errors.Is(err, auth.ErrNameTaken) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 			return
@@ -161,7 +171,7 @@ func (s *Server) handleAPITokens(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]string{"token": raw, "name": body.Name})
+		writeJSON(w, http.StatusCreated, map[string]string{"token": raw, "name": name})
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -383,7 +393,7 @@ func (s *Server) checkAPIKey(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	// Accept Bearer token in Authorization header or ?key= query param (for browser direct access).
-	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") && keyEqual(strings.TrimPrefix(auth, "Bearer "), s.cfg.APIKey) {
+	if keyEqual(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), s.cfg.APIKey) {
 		return true
 	}
 	if keyEqual(r.URL.Query().Get("key"), s.cfg.APIKey) {
@@ -391,6 +401,17 @@ func (s *Server) checkAPIKey(w http.ResponseWriter, r *http.Request) bool {
 	}
 	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	return false
+}
+
+// isEphemeralName matches the names `connect --api-key/--github-action` uses.
+func isEphemeralName(n string) bool {
+	return strings.HasPrefix(n, "gh-") || strings.HasPrefix(n, "ephemeral-")
+}
+
+func randSuffix() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func keyEqual(got, want string) bool {

@@ -517,7 +517,10 @@ func connectCmd() *cobra.Command {
 					resolvedAPIURL = "http://localhost:" + strconv.Itoa(apiPort)
 				}
 				// The admin key never goes over plaintext HTTP to a remote host.
-				if err := checkAPIURLSafety(resolvedAPIURL); err != nil {
+				// Existing http:// settings keep working: the server answers https
+				// on the same port, so upgrade the scheme instead of failing.
+				resolvedAPIURL, err := secureAPIURL(resolvedAPIURL)
+				if err != nil {
 					return err
 				}
 				api := apiHTTPClient(insecure, fingerprint)
@@ -579,31 +582,25 @@ func connectCmd() *cobra.Command {
 	return cmd
 }
 
-// checkAPIURLSafety returns an error if the URL would transmit the API key
-// over plaintext HTTP to a non-loopback address. --insecure does not lift
-// this: it only relaxes certificate checks, never encryption.
-func checkAPIURLSafety(rawURL string) error {
+// secureAPIURL returns a URL that never carries the API key in plaintext to a
+// remote host. http:// to a non-loopback host is upgraded to https:// on the
+// same port (the server's API port serves both); --insecure does not lift
+// this, it only relaxes certificate checks, never encryption.
+func secureAPIURL(rawURL string) (string, error) {
 	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid --api-url %q: %w", rawURL, err)
+	if err != nil || u.Host == "" {
+		return "", fmt.Errorf("invalid --api-url %q", rawURL)
 	}
-	if strings.ToLower(u.Scheme) == "https" {
-		return nil // HTTPS is always safe
+	if !strings.EqualFold(u.Scheme, "http") {
+		return rawURL, nil
 	}
 	host := u.Hostname()
-	ip := net.ParseIP(host)
-	loopback := host == "localhost" ||
-		(ip != nil && ip.IsLoopback())
-	if !loopback {
-		return fmt.Errorf(
-			"refusing to send API key over plaintext HTTP to %q\n"+
-				"Options:\n"+
-				"  1. Use HTTPS: --api-url https://<host>:9100 (add --fingerprint to pin the cert)\n"+
-				"  2. Use an SSH tunnel: ssh -L 9100:localhost:9100 user@<vm> -N &",
-			host,
-		)
+	if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
+		return rawURL, nil // stays on this machine (e.g. an SSH tunnel)
 	}
-	return nil
+	u.Scheme = "https"
+	fmt.Fprintf(os.Stderr, "note: using %s instead of plain http so the API key is encrypted\n", u)
+	return u.String(), nil
 }
 
 // generateEphemeralToken calls POST /api/tokens on the server to create a
