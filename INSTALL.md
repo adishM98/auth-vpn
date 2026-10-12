@@ -236,7 +236,8 @@ auth-vpn server tokens add --name "ci-runner" --expires 24h
 # Add one-time token (revokes itself after first connection)
 auth-vpn server tokens add --name "temp-access" --one-time
 
-# Revoke access immediately — no server restart needed
+# Revoke access — the running server sees it on the next connection attempt, no restart needed.
+# (Revoking from the dashboard/API also closes sessions that are already open.)
 auth-vpn server tokens revoke --name "dev-john"
 ```
 

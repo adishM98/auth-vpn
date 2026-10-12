@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"regexp"
@@ -29,6 +30,23 @@ func safeRoutes(routes []string, serverIP string) []string {
 		ok = append(ok, r)
 	}
 	return ok
+}
+
+// checkTunnelAddrs applies the pushed-route policy to the tunnel addresses in
+// AUTH_OK too: they also become root routes (ip route / ifconfig), so a server
+// could otherwise send subnet 128.0.0.0/1 and capture half the internet.
+func checkTunnelAddrs(subnet, clientIP, tunServerIP, vpnServer string) error {
+	if len(safeRoutes([]string{subnet}, vpnServer)) != 1 {
+		return fmt.Errorf("server sent an unsafe tunnel subnet %q", subnet)
+	}
+	_, n, _ := net.ParseCIDR(subnet)
+	for _, a := range []string{clientIP, tunServerIP} {
+		ip := net.ParseIP(a)
+		if ip == nil || ip.To4() == nil || !n.Contains(ip) {
+			return fmt.Errorf("server sent tunnel address %q outside subnet %s", a, subnet)
+		}
+	}
+	return nil
 }
 
 // Lowercase, at least two labels. Also keeps the domain safe to use as a

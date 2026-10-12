@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adishM98/auth-vpn/internal/httpguard"
 	"github.com/adishM98/auth-vpn/internal/tlsutil"
 )
 
@@ -200,16 +201,20 @@ func (h *Hub) clientFor(s ServerEntry) *http.Client {
 	return buildHTTPClient(s)
 }
 
+// noRedirect keeps requests (and the server API key they carry) on the
+// registered URL: an upstream redirect could otherwise move a pinned-TLS
+// request to http:// or to another host.
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
 func buildHTTPClient(s ServerEntry) *http.Client {
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS13}
 	if s.TLSFingerprint != "" {
-		return &http.Client{
-			Transport: &http.Transport{TLSClientConfig: tlsutil.PinnedTLSConfig(s.TLSFingerprint)},
-			Timeout:   15 * time.Second,
-		}
+		tlsCfg = tlsutil.PinnedTLSConfig(s.TLSFingerprint)
 	}
 	return &http.Client{
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13}},
-		Timeout:   15 * time.Second,
+		Transport:     &http.Transport{TLSClientConfig: tlsCfg},
+		Timeout:       15 * time.Second,
+		CheckRedirect: noRedirect,
 	}
 }
 
@@ -388,7 +393,7 @@ func (h *Hub) handleProbe(w http.ResponseWriter, r *http.Request) {
 
 	// HTTP: no fingerprint, just verify reachability via /health
 	if parsed.Scheme != "https" {
-		client := &http.Client{Timeout: 10 * time.Second}
+		client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: noRedirect}
 		req, _ := http.NewRequest(http.MethodGet, strings.TrimRight(body.URL, "/")+"/health", nil)
 		if body.APIKey != "" {
 			req.Header.Set("Authorization", "Bearer "+body.APIKey)
@@ -519,8 +524,10 @@ func (h *Hub) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	targetURL := entry.URL + cleanPath
-	if r.URL.RawQuery != "" {
-		targetURL += "?" + r.URL.RawQuery
+	q := r.URL.Query()
+	q.Del("key") // the hub's own key never goes to an upstream
+	if len(q) > 0 {
+		targetURL += "?" + q.Encode()
 	}
 
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
@@ -528,12 +535,13 @@ func (h *Hub) handleProxy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	for k, vv := range r.Header {
-		if !isHopByHop(k) {
-			req.Header[k] = vv
+	// Allow-list, not deny-list: Referer (which carries /hub?key=...), Cookie
+	// and Origin from the hub origin must never reach a registered server.
+	for _, k := range proxiedRequestHeaders {
+		if v := r.Header.Values(k); len(v) > 0 {
+			req.Header[k] = v
 		}
 	}
-	req.Header.Del("Host")
 	if entry.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+entry.APIKey)
 	} else {
@@ -547,11 +555,12 @@ func (h *Hub) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	for k, vv := range resp.Header {
-		if !isHopByHop(k) {
-			w.Header()[k] = vv
-		}
+	// Upstream bytes are data, never a page on the hub origin (which holds
+	// every server's key): pass only the content type and sandbox the rest.
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
 	}
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body) //nolint:errcheck
 }
@@ -560,7 +569,17 @@ func (h *Hub) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 func (h *Hub) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// The dashboard URL carries ?key=; keep it out of Referer and frames.
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
 		if h.hubKey == "" {
+			// No key: loopback is the only gate, so stop web pages in the
+			// operator's browser (CSRF, DNS rebinding) from using it.
+			if err := httpguard.CheckBrowser(r); err != nil {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+				return
+			}
 			next(w, r)
 			return
 		}
@@ -586,17 +605,5 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	json.NewEncoder(w).Encode(v) //nolint:errcheck
 }
 
-var hopByHopHeaders = map[string]bool{
-	"Connection":          true,
-	"Keep-Alive":          true,
-	"Proxy-Authenticate":  true,
-	"Proxy-Authorization": true,
-	"Te":                  true,
-	"Trailers":            true,
-	"Transfer-Encoding":   true,
-	"Upgrade":             true,
-}
-
-func isHopByHop(header string) bool {
-	return hopByHopHeaders[http.CanonicalHeaderKey(header)]
-}
+// proxiedRequestHeaders are the only request headers forwarded upstream.
+var proxiedRequestHeaders = []string{"Accept", "Content-Type", "Accept-Language"}

@@ -17,10 +17,18 @@ inputs:
 
   api-url:
     description: >
-      Full URL of the server API, e.g. http://your-vpn-host:9100 or
-      https://your-vpn-host:9100. Defaults to http://<host>:9100.
-      Use https:// if you need encrypted API traffic (requires the server
-      to have TLS certs configured).
+      Full URL of the server API. Defaults to https://<host>:9100.
+      Must be https:// (the API key is never sent over plain HTTP to a
+      remote host).
+    required: false
+
+  fingerprint:
+    description: >
+      The server certificate fingerprint (SHA256:..., printed by
+      `auth-vpn server install`; store it as a variable or secret).
+      Pins both the API call and the tunnel, so nobody on the network
+      path can impersonate your server. Strongly recommended; without it
+      the action connects with certificate checks off and warns.
     required: false
 
   routes:
@@ -55,8 +63,10 @@ runs:
     # ── Install ────────────────────────────────────────────────────────────────
     - name: Install auth-vpn
       shell: bash
+      env:
+        IN_VERSION: ${{ inputs.version }}
       run: |
-        VERSION="${{ inputs.version }}"
+        VERSION="$IN_VERSION"
         if [ "$VERSION" = "latest" ]; then
           VERSION=$(curl -sfL \
             https://api.github.com/repos/adishM98/auth-vpn/releases/latest \
@@ -100,26 +110,33 @@ runs:
     - name: Connect (TUN mode)
       if: inputs.mode != 'proxy'
       shell: bash
+      # Inputs travel as env vars, never spliced into the script text.
       env:
         AUTH_VPN_API_KEY: ${{ inputs.api-key }}
+        IN_SERVER: ${{ inputs.server }}
+        IN_API_URL: ${{ inputs.api-url }}
+        IN_FINGERPRINT: ${{ inputs.fingerprint }}
+        IN_ROUTES: ${{ inputs.routes }}
       run: |
-        # Derive API URL from server host if not explicitly provided.
-        SERVER_HOST=$(echo "${{ inputs.server }}" | cut -d: -f1)
-        API_URL="${{ inputs.api-url }}"
-        [ -z "$API_URL" ] && API_URL="http://${SERVER_HOST}:9100"
+        SERVER_HOST="${IN_SERVER%:*}"
+        API_URL="${IN_API_URL:-https://${SERVER_HOST}:9100}"
 
-        ARGS="--background --reconnect --insecure --github-action --api-url $API_URL"
-
-        # Add each comma-separated CIDR as a --route flag.
-        if [ -n "${{ inputs.routes }}" ]; then
-          IFS=',' read -ra CIDRS <<< "${{ inputs.routes }}"
-          for cidr in "${CIDRS[@]}"; do
-            cidr=$(echo "$cidr" | tr -d ' ')
-            [ -n "$cidr" ] && ARGS="$ARGS --route $cidr"
-          done
+        ARGS=(--background --reconnect --github-action --api-url "$API_URL")
+        if [ -n "$IN_FINGERPRINT" ]; then
+          ARGS+=(--fingerprint "$IN_FINGERPRINT")
+        else
+          echo "::warning::auth-vpn: no 'fingerprint' input; connecting without certificate checks. Set it to the fingerprint printed by 'auth-vpn server install'."
+          ARGS+=(--insecure)
         fi
 
-        sudo -E auth-vpn connect "${{ inputs.server }}" $ARGS &
+        # Add each comma-separated CIDR as a --route flag.
+        IFS=',' read -ra CIDRS <<< "$IN_ROUTES"
+        for cidr in "${CIDRS[@]}"; do
+          cidr="${cidr// /}"
+          [ -n "$cidr" ] && ARGS+=(--route "$cidr")
+        done
+
+        sudo -E auth-vpn connect "$IN_SERVER" "${ARGS[@]}" &
 
         # Poll until tunnel.json reports connected (up to 30 s).
         for i in $(seq 1 30); do
@@ -136,22 +153,32 @@ runs:
       shell: bash
       env:
         AUTH_VPN_API_KEY: ${{ inputs.api-key }}
+        IN_SERVER: ${{ inputs.server }}
+        IN_API_URL: ${{ inputs.api-url }}
+        IN_FINGERPRINT: ${{ inputs.fingerprint }}
+        IN_FORWARDS: ${{ inputs.forwards }}
       run: |
-        if [ -z "${{ inputs.forwards }}" ]; then
+        if [ -z "$IN_FORWARDS" ]; then
           echo "::error::inputs.forwards is required in proxy mode"
           exit 1
         fi
 
-        SERVER_HOST=$(echo "${{ inputs.server }}" | cut -d: -f1)
-        API_URL="${{ inputs.api-url }}"
-        [ -z "$API_URL" ] && API_URL="http://${SERVER_HOST}:9100"
+        SERVER_HOST="${IN_SERVER%:*}"
+        API_URL="${IN_API_URL:-https://${SERVER_HOST}:9100}"
 
-        ARGS="--background --reconnect --insecure --github-action --api-url $API_URL"
-        for f in ${{ inputs.forwards }}; do
-          ARGS="$ARGS --forward $f"
+        ARGS=(--background --reconnect --github-action --api-url "$API_URL")
+        if [ -n "$IN_FINGERPRINT" ]; then
+          ARGS+=(--fingerprint "$IN_FINGERPRINT")
+        else
+          echo "::warning::auth-vpn: no 'fingerprint' input; connecting without certificate checks. Set it to the fingerprint printed by 'auth-vpn server install'."
+          ARGS+=(--insecure)
+        fi
+        read -ra FWDS <<< "$IN_FORWARDS"
+        for f in "${FWDS[@]}"; do
+          ARGS+=(--forward "$f")
         done
 
-        auth-vpn connect "${{ inputs.server }}" $ARGS &
+        auth-vpn connect "$IN_SERVER" "${ARGS[@]}" &
 
         for i in $(seq 1 30); do
           auth-vpn status 2>/dev/null | grep -q "status: connected" && break

@@ -79,9 +79,15 @@ func isInteractive() bool {
 //  2. No known fingerprint → try full CA verification.
 //  3. CA fails with a cert error → prompt user (or auto-trust in non-interactive mode).
 //  4. Fingerprint saved; subsequent connections skip the prompt entirely.
-func DialTLS(addr string, insecure bool) (*tls.Conn, error) {
+//
+// A fingerprint given up front (--fingerprint) is enforced before anything
+// else, so CI can pin the server without a known_hosts file or --insecure.
+func DialTLS(addr string, insecure bool, fingerprint string) (*tls.Conn, error) {
 	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
 
+	if fingerprint != "" {
+		return tls.DialWithDialer(dialer, "tcp", addr, pinnedTLSConfig(fingerprint))
+	}
 	if insecure {
 		return tls.DialWithDialer(dialer, "tcp", addr,
 			&tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13}) //nolint:gosec

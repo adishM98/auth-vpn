@@ -28,6 +28,8 @@ sudo auth-vpn server start
 sudo auth-vpn server start --subnet 10.8.0.0/24 --server-ip 10.8.0.1
 sudo auth-vpn server start --metrics-addr 0.0.0.0:9100 --api-key <key>
 sudo auth-vpn server start --acl /etc/auth-vpn/acl.yaml
+sudo auth-vpn server start --ssh-addr off             # turn the embedded SSH server off ("off" or "")
+#   max_sessions_per_client: 32   # in server.yaml: TUN addresses one token/whitelist entry may hold (-1 = unlimited)
 
 # Routes / split DNS pushed to TUN clients — set in /etc/auth-vpn/server.yaml.
 # Inside Kubernetes these are auto-detected when unset; AUTH_VPN_PUSH_ROUTES env overrides the route guess.
@@ -52,6 +54,9 @@ auth-vpn server tokens revoke --name "dev-alice"
 ```bash
 # Connect interactively (Ctrl+C to disconnect)
 sudo auth-vpn connect <server-ip>:7777 --token <token>
+
+# Pin the server certificate up front (fingerprint printed by `server install`)
+sudo auth-vpn connect <server-ip>:7777 --token <token> --fingerprint SHA256:...
 
 # Connect using a saved profile
 sudo auth-vpn connect staging

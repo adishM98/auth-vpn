@@ -115,7 +115,7 @@ External machine (whitelisted IP)
 
 ## SSH tunnel
 
-auth-vpn runs an embedded SSH server on port **2222** that supports standard SSH local port forwarding. Any tool that speaks SSH can reach backend services this way — **no auth-vpn binary needed on the client side**.
+auth-vpn runs an embedded SSH server on port **2222** (turn it off with `ssh_addr: off`) that supports standard SSH local port forwarding. Any tool that speaks SSH can reach backend services this way — **no auth-vpn binary needed on the client side**.
 
 ### Auth methods
 
@@ -123,7 +123,7 @@ auth-vpn runs an embedded SSH server on port **2222** that supports standard SSH
 |--------|-----|
 | Private key | Generate a keypair from the dashboard → SSH Keys → Generate, or register an existing public key |
 | Password | Use any auth-vpn token as the SSH password (any username) |
-| System key | Any key in `~/.ssh/authorized_keys` on the server VM automatically works |
+| System key | A key in `~/.ssh/authorized_keys` on the server VM works too, unless its line carries a restriction (`restrict`, `no-port-forwarding`, `command=`, `from=`, `permitopen=`, `expiry-time=`). auth-vpn can't honour those, so it refuses such keys; register them through the dashboard instead |
 
 ### Generate a keypair
 
@@ -156,7 +156,7 @@ curl -X DELETE http://localhost:9100/api/ssh-keys/my-app
 
 ## ACL rules
 
-Create `/etc/auth-vpn/acl.yaml` to restrict what each device can reach at the packet level:
+Create `/etc/auth-vpn/acl.yaml` to restrict what each device can reach. Rules match the destination port of traffic the device sends, and apply the same way in TUN mode, proxy mode and over SSH. A file that can't be parsed stops the server from starting rather than allowing everything:
 
 ```yaml
 default_policy: deny

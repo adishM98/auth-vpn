@@ -87,7 +87,8 @@ If your job runs `docker-compose up`, those containers can also reach `10.8.0.1`
 |-------|----------|---------|-------------|
 | `server` | yes | — | VPN server address, e.g. `203.0.113.10:7777` |
 | `api-key` | yes | — | Server API key for ephemeral token generation |
-| `api-url` | no | `http://<host>:9100` | API endpoint. **Set `https://<host>:9100`**: plain http from a runner is redirected to https, but the first request has already sent the key unencrypted |
+| `api-url` | no | `https://<host>:9100` | API endpoint. Must be `https://`: the API key is never sent over plain HTTP to a remote host |
+| `fingerprint` | no (recommended) | — | Server certificate fingerprint (`SHA256:...`, printed by `auth-vpn server install`). Pins both the API call and the tunnel. Without it the action connects with certificate checks off and logs a warning |
 | `routes` | no | — | Extra CIDRs to route via VPN, comma-separated (e.g. `10.20.0.0/16`) |
 | `mode` | no | `tun` | `tun` (full OS routing, needs sudo) or `proxy` (explicit port-forwards, no root) |
 | `forwards` | no | — | Proxy mode only: `"5432:10.8.0.1:5432 6379:10.8.0.1:6379"` |
