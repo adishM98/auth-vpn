@@ -21,3 +21,4 @@ vendor/
 
 # ui-dev (local dashboard preview)
 auth-vpn-dev-tokens.yaml
+docs/diagrams/_src/node_modules/

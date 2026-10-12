@@ -1,5 +1,7 @@
 # auth-vpn — Dev & QA Guide
 
+![auth-vpn: outside, the doorman, and your private network](diagrams/avpn-big-picture.svg)
+
 > **What is this?** auth-vpn lets you securely access private databases and services running on a company VM — from your laptop, without exposing anything to the internet.
 >
 > **Your internet speed is not affected.** Only traffic to internal services (10.8.0.1) goes through the tunnel. Everything else — browsing, Slack, downloads — uses your normal connection.
@@ -34,17 +36,17 @@ curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install
 ## Step 2 — Connect
 
 ```bash
-auth-vpn connect <server-address> --token <your-token>
+sudo auth-vpn connect <server-address> --token <your-token>
 ```
 
 Example:
 ```bash
-auth-vpn connect 172.190.141.231:7777 --token a1b2c3d4e5f6
+sudo auth-vpn connect 172.190.141.231:7777 --token a1b2c3d4e5f6
 ```
 
 > **Tip:** Add `--background` to keep it running after you close the terminal, and `--reconnect` to auto-reconnect if it drops:
 > ```bash
-> auth-vpn connect 172.190.141.231:7777 --token a1b2c3d4e5f6 --background --reconnect
+> sudo auth-vpn connect 172.190.141.231:7777 --token a1b2c3d4e5f6 --background --reconnect
 > ```
 
 ---
@@ -61,7 +63,7 @@ auth-vpn profile save work \
 
 From now on, just run:
 ```bash
-auth-vpn connect work --background --reconnect
+sudo auth-vpn connect work --background --reconnect
 ```
 
 ---
@@ -138,8 +140,8 @@ Normal — the installer needs sudo to set up the tunnel interface. Enter your M
 
 | Command | What it does |
 |---------|--------------|
-| `auth-vpn connect <host> --token <tok>` | Connect to VPN |
-| `auth-vpn connect <profile>` | Connect using saved profile |
+| `sudo auth-vpn connect <host> --token <tok>` | Connect to VPN |
+| `sudo auth-vpn connect <profile>` | Connect using saved profile |
 | `auth-vpn disconnect` | Disconnect |
 | `auth-vpn status` | Check if connected |
 | `auth-vpn profile save <name> --host <h> --token <t>` | Save a profile |

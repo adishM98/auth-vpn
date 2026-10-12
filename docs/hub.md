@@ -1,5 +1,11 @@
 # Hub Dashboard
 
+← [README](../README.md)
+
+Picture a security office with **one TV wall** showing every building, instead of walking from building to building.
+
+![The hub: one TV wall for many servers](diagrams/avpn-hub.svg)
+
 The hub is a single dashboard that manages multiple auth-vpn servers from one place. Instead of switching between each server's dashboard to add users, revoke tokens, or configure forwards, you register all your servers in the hub and manage them through one UI.
 
 Every action you take in the hub (create token, kick client, add forward, etc.) is proxied directly to the selected server's REST API. The hub holds no copy of your managed data — it is a pure reverse proxy backed by a small config file listing your servers.

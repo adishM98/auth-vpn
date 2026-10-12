@@ -1,44 +1,44 @@
 # auth-vpn
 
-A lightweight, self-hosted VPN tunnel for developers and teams. One binary, one open port — every application on the machine routes through an encrypted TLS 1.3 tunnel automatically.
+**One small doorman in front of your private network.** A self-hosted VPN for developers, QA and CI, shipped as a single Go binary: one open port, one token per person, and every app on your laptop reaches private databases and services as if it were sitting next to them.
 
-Built for the common case: a team that needs secure access to services running in Docker containers on a cloud VM, without exposing ports to the internet.
+![auth-vpn: outside, the doorman, and your private network](docs/diagrams/avpn-big-picture.svg)
+<sub>Editable source: [avpn-big-picture.excalidraw](docs/diagrams/avpn-big-picture.excalidraw) · open it at [excalidraw.com](https://excalidraw.com)</sub>
 
 ---
 
-## How it works
+## The story in 30 seconds
 
-```
-VM (Docker containers)   ←   auth-vpn server   (configurable port, TLS)
-          │
-          │  encrypted TLS 1.3 tunnel
-          │
-          ├── Dev laptop        (auth-vpn client)
-          ├── QA laptop         (auth-vpn client)
-          ├── Test VM           (auth-vpn client)
-          └── GitHub Actions    (auth-vpn action — ephemeral token per job)
-```
+Your team's Postgres lives on a cloud VM, or inside a Kubernetes cluster, with **no public IP**. That's exactly how the security reviewer wants it. Then someone needs to run a migration from their laptop, and CI needs to seed test data.
 
-The server creates a TUN interface at `10.8.0.1` and assigns each connecting client an IP from `10.8.0.2–254`. All IP traffic to the `10.8.0.0/24` subnet is routed through the tunnel at the OS level — no per-app configuration needed.
+The usual answers all hurt:
 
-Every service on the server is reachable at `10.8.0.1:<port>` — databases, internal APIs, dashboards, anything running on that machine.
+| Option | Like… | Pain |
+|---|---|---|
+| Give the database a public IP | leaving the front door open | security says no |
+| VNet peering / VPN gateway / bastion | building a new road between two cities | slow, cloud-specific, needs network admins |
+| OpenVPN / WireGuard | hiring a security firm | keys, configs, per-device setup |
 
-> **Internet speed is not affected.** auth-vpn is a split-tunnel — only traffic to `10.8.0.0/24` goes through the tunnel. All other traffic uses your normal connection.
+auth-vpn's answer is **a doorman**. One small program stands next to your private services, and it's the only thing exposed. Anyone with a valid wristband (a token) is walked through a private, encrypted hallway (a TLS 1.3 tunnel) to what they need. Everything else keeps its private IP.
+
+> [!TIP]
+> **Recap**
+> - The **server** is the doorman, the **tunnel** is the hallway, and **tokens** are the wristbands.
+> - Only one port is open on the internet (`7777` by default).
+> - It's one binary with no cloud service behind it. You host it.
 
 ---
 
 ## Quick start
 
-### 1 — Server (the VM with your Docker containers)
+### 1. Server: the machine next to your private services
 
 ```bash
 curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
   | sudo bash -s -- --server
 ```
 
-No Go, no Git, nothing to install first. The script detects your platform, downloads the right binary, generates a self-signed TLS cert, creates an initial access token, and registers a systemd service.
-
-At the end you'll see:
+No Go, no Git, nothing to install first. The installer downloads the right binary, generates a self-signed TLS cert, creates a first access token and API key, and registers a systemd service. At the end you'll see:
 
 ```
   ─────────────────────────────────────────────
@@ -50,133 +50,150 @@ At the end you'll see:
   ─────────────────────────────────────────────
 ```
 
-**Save that token** — it's the first team member's token. Create one per person, one for CI, one for each external service. Revoke any individual token without affecting anyone else.
+**That token is shown once.** Store it in a password manager. Then create one token per person (and one for CI) from the dashboard, so you can revoke anyone without affecting the others.
 
-### 2 — Client (dev/QA laptop or another VM)
-
-**macOS / Linux:**
+### 2. Client: your laptop (macOS / Linux)
 
 ```bash
-curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | sudo bash
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
+
+sudo auth-vpn connect <server-ip>:7777 --token <token>                          # foreground
+sudo auth-vpn connect <server-ip>:7777 --token <token> --background --reconnect # keep it running
+
+auth-vpn status        # is the tunnel up?
+auth-vpn disconnect
 ```
 
-Then connect:
+> [!IMPORTANT]
+> Tunnel mode needs **`sudo`**: creating the virtual network card is a root-only operation. Without it you'll see `create tun: … operation not permitted`. No root available? Use [proxy mode](#which-door-should-i-use) instead.
+
+The first time, you're asked to trust the server's certificate fingerprint ("trust on first use"). After that, auth-vpn remembers it and refuses impostors. Save a profile so you never retype the token:
 
 ```bash
-auth-vpn connect <server-ip>:7777 --token abc123xyz
-
-# Background + auto-reconnect
-auth-vpn connect <server-ip>:7777 --token abc123xyz --background --reconnect
-
-auth-vpn status       # check tunnel
-auth-vpn disconnect   # disconnect
+auth-vpn profile save staging --host <server-ip>:7777 --token <token>
+sudo auth-vpn connect staging --background --reconnect
 ```
 
-Save a profile so you never type the token again:
+### 3. Use it
+
+Every service on the server machine is now at `10.8.0.1`:
 
 ```bash
-auth-vpn profile save staging \
-  --host <server-ip>:7777 \
-  --token abc123xyz
-
-auth-vpn connect staging --background --reconnect
+psql      -h 10.8.0.1 -p 5432
+redis-cli -h 10.8.0.1 -p 6379
+curl      http://10.8.0.1:8080/health
 ```
 
-> **Sharing with your team?** [docs/dev-qa-guide.md](docs/dev-qa-guide.md) is a standalone onboarding doc for developers and QA — covers install, connect, save a profile, and troubleshooting. Send it to anyone who needs access.
+Only `10.8.0.0/24`, plus any routes you or the server add, goes through the tunnel. **Your normal internet traffic is untouched.**
+
+> **Sharing with your team?** [docs/dev-qa-guide.md](docs/dev-qa-guide.md) is a standalone onboarding page for developers and QA. Send it to anyone who needs access.
 
 ---
 
-## Security model
+## How it works, in three pictures
 
-- **TLS 1.3** — all traffic is encrypted in transit
-- **Token auth** — SHA-256 hashed tokens stored on server, raw token never persisted
-- **SSH key auth** — connect the embedded SSH server using an RSA key pair; generate server-side or register your own; system `authorized_keys` automatically trusted
-- **Rate limiting** — 5 failed auth attempts = 60 second IP ban
-- **Ephemeral tokens** — `--github-action` flag auto-mints a unique per-job token so parallel CI jobs never share credentials; token is revoked automatically on exit
-- **Token controls** — permanent, expiring, or one-time tokens; revoke any token instantly without restarting the server
-- **ACL rules** — per-device allow/deny lists enforced at the packet level (optional)
-- **API key** — Bearer token required for the Web UI and HTTP API (optional)
-- **Single port** — close all container ports from the internet; only the tunnel port (default `7777`, configurable at install or via `server change-port`) needs to be open
-- **IP whitelist** — static IPs/CIDRs (VMs, PaaS) can connect without a token; managed from the dashboard
-- **Direct forwards** — expose backend ports to whitelisted IPs with no auth-vpn client required
-- **SSH tunnel** — tools like your app or BI tools connect via standard SSH port forwarding; no auth-vpn binary needed on the client side
-- **Kubernetes labeled mode** — only Services you label `auth-vpn.io/expose=true` are reachable through the tunnel, enforced by the server itself (no NetworkPolicy engine needed); fails closed
-- **Pushed routes, filtered** — routes/DNS the server pushes are checked client-side (no default route, nothing covering the server's own IP, no bare TLDs) and can be turned off with `--no-push-routes` / `--no-push-dns`
+### Picture 1: who talks to whom
+
+![auth-vpn architecture map](docs/diagrams/avpn-architecture-map.svg)
+<sub>Editable source: [avpn-architecture-map.excalidraw](docs/diagrams/avpn-architecture-map.excalidraw)</sub>
+
+Read it left to right: **outside → the server's rooms → the private network**. The server has one front door (`:7777`, TLS 1.3) plus a few side rooms: an SSH window, side doors for whitelisted IPs, and a control room (the dashboard and API on `:9100`).
+
+### Picture 2: what happens when you connect
+
+![Connecting in TUN mode](docs/diagrams/avpn-tun-connect.svg)
+
+1. **Knock:** TLS handshake, then `AUTH {token}`.
+2. **Get a seat:** the server hands out the lowest free address in `10.8.0.2–254`.
+3. **Build the hallway:** your laptop creates a virtual network card (TUN) and adds routes. In Kubernetes it also gets the cluster's routes and DNS automatically.
+4. **Walk through:** every packet to `10.8.0.x` (or a pushed route) is wrapped in a frame and sent down the tunnel. Replies come back the same way.
+
+### Picture 3: who gets in
+
+![The front door: checks in order](docs/diagrams/avpn-front-door.svg)
+
+The order matters, like airport security: there's no point reading a boarding pass if the person is on the no-fly list. Five wrong tokens in a minute earns a one-minute timeout.
+
+> [!TIP]
+> **Recap**
+> - One TLS port in, a `/24` of tunnel addresses, routes only for what you need.
+> - Front-door checks: banned? → AUTH? → whitelisted? → token? → TUN or proxy?
+> - Deep dive: [docs/architecture.md](docs/architecture.md).
 
 ---
 
-## CLI reference
+## Which door should I use?
 
-Full command reference: [docs/cli-reference.md](docs/cli-reference.md)
+![Which door should I use](docs/diagrams/avpn-four-doors.svg)
 
-Key commands at a glance:
+| Door | How | Root on your side? | Reaches |
+|---|---|---|---|
+| **TUN** (default) | virtual network card; every app just works | yes (`sudo`) | the tunnel subnet, `--route` CIDRs, server-pushed routes |
+| **Proxy** | `--forward 5432:10.8.0.1:5432`: local port ↔ remote host:port | no | specific host:port pairs (the server dials them) |
+| **SSH** | built-in SSH server on `:2222`, `ssh -L` only | no (any SSH client) | `127.0.0.0/8` and `10.8.0.0/24` on the server |
+| **Direct forward** | the server pipes a port to a fixed target | no client at all | what the admin configured, from **whitelisted IPs** only |
 
 ```bash
-auth-vpn connect <host:port> --token <token>   # connect
-auth-vpn connect <host:port> --token <token> --background --reconnect
-auth-vpn status / disconnect
-auth-vpn server tokens add --name alice        # token management
-auth-vpn server tokens revoke --name alice
-auth-vpn profile save <name> --host <h> --token <t>
+# Proxy mode — no sudo, great for containers and CI
+auth-vpn connect <server-ip>:7777 --token <token> --forward 5432:10.8.0.1:5432
+psql -h 127.0.0.1 -p 5432
 ```
 
 ---
 
-## Web dashboard
+## Kubernetes: reach cluster services without VNet peering
 
-After `server install`, a dashboard is available on port `9100`, over both `http://` and `https://`:
+Run auth-vpn as a pod. It already lives **inside** the cluster network, so your laptop can reach ClusterIP services **by name**, with no VNet peering, no `--route` flags, and no public IP per service.
 
-- Live stats, connected clients, token management, IP whitelist, SSH keys, and direct forwards
-- **Connected to the VPN:** `http://10.8.0.1:9100/ui`
-- **Via SSH:** `ssh -L 9100:localhost:9100 user@<vm-ip>`, then `http://localhost:9100/ui`
-- **Directly:** `https://<server-ip>:9100/ui` (self-signed cert). Plain `http://` from the internet redirects to https, so the API key is never sent unencrypted over the internet.
-
----
-
-## Hub dashboard
-
-Managing multiple auth-vpn servers means juggling multiple dashboards. The hub gives you a single place to manage all of them.
+![Before vs after](docs/diagrams/avpn-k8s-before-after.svg)
 
 ```bash
-auth-vpn hub serve          # starts on http://127.0.0.1:9200
-auth-vpn hub serve --port 9300 --bind 0.0.0.0
+kubectl apply -k "github.com/adishM98/auth-vpn/k8s?ref=main"   # namespace, read-only RBAC, auth-vpn
+kubectl logs -n auth-vpn deploy/auth-vpn | grep "auth-vpn connect"   # first-boot token (shown once)
+kubectl get svc -n auth-vpn auth-vpn                                 # LoadBalancer IP
+
+sudo auth-vpn connect <LB-IP>:7777 --token <token>
+psql -h postgres.myns.svc.cluster.local            # cluster DNS works through the tunnel
 ```
 
-Open `http://127.0.0.1:9200` and add servers from the UI — no YAML editing. Every change you make in the hub (tokens, clients, whitelist, forwards) goes directly to the selected server. There is no hub-side state for managed resources.
+On connect, the pod **pushes** two things it detects for you: a route for the cluster's service range, and split DNS for `*.cluster.local`. Your laptop checks what it's handed before using it. It never accepts a default route, anything covering the server's own IP, or a bare TLD, and you can switch it off with `--no-push-routes` / `--no-push-dns`.
 
-```
-Hub (127.0.0.1:9200)
-  ├── prod-db        → https://10.0.0.1:9100   ● online  3 clients
-  ├── staging        → https://10.0.0.2:9100   ● online  1 client
-  └── eu-west        → https://10.0.0.4:9100   ○ offline
-```
+### Only some Services: labeled mode
 
-> See [docs/hub.md](docs/hub.md) for setup, TLS fingerprint handling, adding servers, and the hub API reference.
+Want **only Grafana** behind the VPN, with everything else exactly as it is?
 
----
-
-## Server features
-
-Detailed docs for each server-side feature: [docs/server-features.md](docs/server-features.md)
-
-| Feature | What it does |
-|---------|-------------|
-| **IP whitelist** | Static IPs/CIDRs connect without a token; managed from dashboard or API |
-| **Direct forwards** | Expose backend ports to whitelisted IPs — no auth-vpn client on the other side |
-| **SSH tunnel** | Embedded SSH server on port 2222 — any SSH-capable tool can reach backend services |
-| **ACL rules** | Per-device allow/deny lists enforced at the packet level |
-| **HTTP API** | Full REST API at `:9100/api/` for tokens, clients, whitelist, forwards, and SSH keys (http + https on one port) |
-| **Kubernetes push** | In a pod, the server pushes the service CIDR route and split DNS (`*.cluster.local`) to clients |
-| **Labeled mode** | `AUTH_VPN_EXPOSE=labeled`: only Services labelled `auth-vpn.io/expose=true` are reachable |
-
----
-
-## Prometheus metrics
+![Labeled mode: only one Service behind auth-vpn](docs/diagrams/avpn-one-service.svg)
 
 ```bash
-curl http://localhost:9100/metrics
+kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_EXPOSE=labeled
+kubectl label svc grafana -n monitoring auth-vpn.io/expose=true
 ```
+
+auth-vpn then routes and allows **only labelled Services**. It enforces that itself, per packet and per proxy dial, so it works even on clusters with no NetworkPolicy engine. It also fails closed: if the API is unreachable, it keeps the last list.
+
+> [!TIP]
+> **Recap**
+> - In a cluster, auth-vpn speaks for you (MASQUERADE), so you reach what the pod can reach.
+> - Routes and DNS are pushed automatically. Clients need **v2.6.0+**.
+> - Labeled mode = an allow-list you manage with `kubectl label`.
+>
+> Full guide, including the recommended overlay, upgrades and troubleshooting: [docs/k8s-deployment.md](docs/k8s-deployment.md).
+
+---
+
+## The dashboard
+
+Live clients, traffic, tokens, IP whitelist, SSH keys and direct forwards, all on port `9100`, which speaks **both `http://` and `https://`**:
+
+![How to reach the dashboard](docs/diagrams/avpn-dashboard-access.svg)
+
+| From | Open |
+|---|---|
+| a connected VPN client | `http://10.8.0.1:9100/ui` |
+| the server, `ssh -L 9100:localhost:9100`, or `kubectl port-forward` | `http://localhost:9100/ui` |
+| anywhere else | `https://<server-ip>:9100/ui` (self-signed cert) |
+
+Plain `http://` from the internet is redirected to `https://`, so the API key never crosses the internet unencrypted. Paste the key into the page rather than into `?key=` URLs. Prometheus metrics are at `/metrics`:
 
 ```
 auth_vpn_uptime_seconds        auth_vpn_active_connections
@@ -187,226 +204,126 @@ auth_vpn_dropped_packets_total
 
 ---
 
-## Installation options
+## GitHub Actions
 
-### macOS / Linux — single curl command
+Two steps per job. Every job gets **its own short-lived token**, created at the start and revoked at the end, so parallel matrix jobs never share credentials.
 
-```bash
-# Server — prompts for tunnel port (default 7777)
-curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | sudo bash -s -- --server
-
-# Server on a specific port (skips the prompt)
-curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | sudo bash -s -- --server --port=8888
-
-# Client
-curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | sudo bash
-
-# Pin to a specific version
-curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh \
-  | sudo bash -s -- --version=v1.2.3
-```
-
-> **Non-interactive installs** (piped curl, CI scripts): the port prompt is automatically skipped when stdin is not a terminal. Pass `--port=<n>` explicitly, or set the `TJ_VPN_PORT` environment variable.
-
-### Deploy from your Mac (VM needs nothing)
-
-```bash
-git clone https://github.com/adishM98/auth-vpn && cd auth-vpn
-
-make deploy VM=azureuser@<vm-ip>               # server
-make deploy-client VM=azureuser@<vm-ip>        # client
-make deploy VM=azureuser@<vm-ip> PORT=8888     # custom port
-```
-
-### From source
-
-```bash
-git clone https://github.com/adishM98/auth-vpn && cd auth-vpn
-sudo ./install.sh              # client
-sudo ./install.sh --server     # server
-```
-
----
-
-## Docker compose — make containers reachable through the tunnel
-
-Containers must bind to `0.0.0.0`, not `127.0.0.1`:
-
-```yaml
-# docker-compose.yml
-services:
-  postgres:
-    image: postgres:16
-    ports:
-      - "5432:5432"       # ✅ accessible through tunnel
-      # not: "127.0.0.1:5432:5432"  — tunnel can't reach this
-```
-
----
-
-## Kubernetes
-
-Run auth-vpn as a pod inside your cluster so your laptop (or CI) can reach every ClusterIP service directly — databases, dashboards, internal APIs — without a public LoadBalancer IP for each one.
-
-```
-Your laptop  ──TLS──►  auth-vpn LoadBalancer  ──►  ClusterIP services
-                        (one public IP)              (stay private)
-```
-
-**Quick start:**
-
-```bash
-kubectl apply -k "github.com/adishM98/auth-vpn/k8s?ref=main"
-kubectl logs -n auth-vpn deploy/auth-vpn          # admin token
-kubectl get svc -n auth-vpn auth-vpn               # LoadBalancer IP
-
-sudo auth-vpn connect <LB-IP>:7777 --token <token>
-psql -h postgres.myns.svc.cluster.local            # service DNS works through the tunnel
-```
-
-The server auto-detects the cluster's service CIDR and DNS and pushes both to clients — no `--route` flags, no VNet peering.
-
-Want only some Services reachable? Set `AUTH_VPN_EXPOSE=labeled` and label them:
-
-```bash
-kubectl set env -n auth-vpn deploy/auth-vpn AUTH_VPN_EXPOSE=labeled
-kubectl label svc grafana -n monitoring auth-vpn.io/expose=true
-```
-
-The server then pushes and allows just those, on any cluster, with no NetworkPolicy needed. Everything else stays exactly as it is, including other public LoadBalancers. The dashboard stays reachable at `http://10.8.0.1:9100/ui` over the VPN. See [Put only some services behind auth-vpn](docs/k8s-deployment.md#put-only-some-services-behind-auth-vpn-labeled-mode) and the [recommended overlay](docs/k8s-deployment.md#recommended-a-small-overlay).
-
-> See [docs/k8s-deployment.md](docs/k8s-deployment.md) for the full guide — namespace setup, image registry options, connecting from a laptop or CI, token management, and troubleshooting.
-
----
-
-## Use in GitHub Actions
-
-auth-vpn ships a ready-made GitHub Action. Add two steps to any job and every service on the server VM becomes reachable at `10.8.0.1`. Tokens are created and revoked automatically per job run.
+![A CI job's life](docs/diagrams/avpn-ci-flow.svg)
 
 ```yaml
 steps:
   - name: Connect to VPN
     uses: adishM98/auth-vpn@v2
     with:
-      server: ${{ secrets.VPN_SERVER }}
-      api-key: ${{ secrets.VPN_API_KEY }}
+      server: ${{ secrets.VPN_SERVER }}            # <server-ip>:7777
+      api-key: ${{ secrets.VPN_API_KEY }}          # api_key from /etc/auth-vpn/server.yaml
+      api-url: https://<server-ip>:9100
 
-  # use 10.8.0.1 as the host for any service on the VM
+  # services on the server are now at 10.8.0.1 (or by name, if the server runs in Kubernetes)
 
   - name: Disconnect VPN
     if: always()
     uses: adishM98/auth-vpn/disconnect@v2
 ```
 
-Secrets to add in **Settings → Secrets and variables → Actions**:
-
-| Secret | Value |
-|--------|-------|
-| `VPN_SERVER` | `<vm-public-ip>:7777` |
-| `VPN_API_KEY` | The `api_key` from `/etc/auth-vpn/server.yaml` |
-
-> See [docs/github-actions.md](docs/github-actions.md) for parallel matrix jobs, proxy mode, action inputs reference, non-GitHub CI, and troubleshooting.
+More: [docs/github-actions.md](docs/github-actions.md) (matrix jobs, proxy mode, inputs, non-GitHub CI).
 
 ---
 
-## Building from source
+## Many servers? The hub
 
-Requires Go 1.22+.
+![The hub](docs/diagrams/avpn-hub.svg)
+
+`auth-vpn hub serve` gives you one local dashboard over every server (prod, staging, eu-west…), using each server's API key. See [docs/hub.md](docs/hub.md).
+
+---
+
+## Security model
+
+- **TLS 1.3** tunnel, with the server's self-signed cert **pinned on first use** (TOFU). A changed cert is refused.
+- **Tokens:** only a SHA-256 hash is stored on the server. Tokens can be permanent, expiring or one-time. Revoking one blocks new connections immediately, and **Kick** (dashboard) ends a live session.
+- **Rate limiting:** 5 failed auths in a minute → 60-second ban for that IP.
+- **Ephemeral CI tokens:** one per job, revoked on exit, with a 2-hour expiry as a backstop.
+- **ACL rules:** per-device allow/deny by protocol and port (optional).
+- **Kubernetes labeled mode:** only labelled Services are reachable. It's enforced by the server and fails closed.
+- **Pushed settings are filtered client-side:** no default route, nothing covering the server IP, no bare TLDs.
+- **API key** for the dashboard and API. It's never sent unencrypted over the internet.
+- **IP whitelist, direct forwards and SSH tunnel** are there for machines that can't run the client.
+
+---
+
+## Install options
+
+```bash
+# Server — prompts for the tunnel port (default 7777)
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash -s -- --server
+# Server on a specific port (no prompt)
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash -s -- --server --port=8888
+# Client
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash
+# Pin a version
+curl -fsSL https://github.com/adishM98/auth-vpn/releases/latest/download/install.sh | sudo bash -s -- --version=v2.9.0
+```
+
+Non-interactive installs (piped curl, CI) skip the port prompt: pass `--port=<n>` or set `TJ_VPN_PORT`.
+
+**Deploy from your Mac** (the VM needs nothing): `make deploy VM=azureuser@<vm-ip>` for a server, `make deploy-client VM=…` for a client.
+
+**Docker Compose:** containers must publish on `0.0.0.0` (`"5432:5432"`), not `127.0.0.1:5432:5432`, or the tunnel can't reach them.
+
+### Build from source
+
+Requires **Go 1.25+**.
 
 ```bash
 git clone https://github.com/adishM98/auth-vpn && cd auth-vpn
+go build -o auth-vpn ./cmd     # current platform
+make build-all                 # linux/amd64, darwin/amd64, darwin/arm64 → dist/
+```
 
-go build -o auth-vpn ./cmd    # current platform
+| Make target | What it does |
+|---|---|
+| `make build-linux` / `build-mac-arm` / `build-mac-intel` / `build-all` | build into `dist/` |
+| `make install` / `make install-server` | install client / server on this machine |
+| `make deploy VM=user@host` / `make deploy-client VM=user@host` | build and install on a remote VM |
+| `make release` | build all + publish a GitHub release |
+| `make clean` | remove `dist/` |
 
-make build-linux              # Linux amd64
-make build-mac-arm            # macOS Apple Silicon
-make build-mac-intel          # macOS Intel
-make build-all                # all three platforms
+### Updating
+
+```bash
+sudo auth-vpn update     # latest release; restarts the systemd service if active
+auth-vpn version
+sudo auth-vpn server change-port   # move the tunnel port (update firewalls + client profiles too)
+```
+
+Re-running the server installer is safe: it keeps `server.yaml`, the TLS cert and all tokens.
+
+### Uninstalling
+
+```bash
+# client
+auth-vpn disconnect && sudo rm /usr/local/bin/auth-vpn && rm -rf ~/.auth-vpn
+
+# server
+sudo systemctl disable --now auth-vpn
+sudo rm -f /usr/local/bin/auth-vpn /etc/systemd/system/auth-vpn.service /var/run/auth-vpn.sock
+sudo rm -rf /etc/auth-vpn && sudo systemctl daemon-reload
 ```
 
 ---
 
-## Verify your connection
+## Read next
 
-```bash
-auth-vpn status               # tunnel status
-ping 10.8.0.1                 # ping the VM through the tunnel
+| If you want to… | Read |
+|---|---|
+| understand how it works inside (frames, front door, packet path) | [docs/architecture.md](docs/architecture.md) |
+| run it in Kubernetes, with labeled mode | [docs/k8s-deployment.md](docs/k8s-deployment.md) |
+| use the dashboard, API, whitelist, direct forwards, SSH | [docs/server-features.md](docs/server-features.md) |
+| look up a command or setting | [docs/cli-reference.md](docs/cli-reference.md) |
+| wire up CI | [docs/github-actions.md](docs/github-actions.md) |
+| manage many servers | [docs/hub.md](docs/hub.md) |
+| onboard a developer / QA | [docs/dev-qa-guide.md](docs/dev-qa-guide.md) |
+| step-by-step VM install | [INSTALL.md](INSTALL.md) |
 
-psql      -h 10.8.0.1 -p 5432
-mysql     -h 10.8.0.1 -P 3306 -u root -p
-redis-cli -h 10.8.0.1 -p 6379
-curl         http://10.8.0.1:8080/health
-```
-
----
-
-## Makefile targets
-
-| Target | Description |
-|--------|-------------|
-| `make build-linux` | Build Linux amd64 → `dist/` |
-| `make build-mac-arm` | Build macOS arm64 → `dist/` |
-| `make build-mac-intel` | Build macOS amd64 → `dist/` |
-| `make build-all` | All three platforms |
-| `make install` | Build + install on this machine (client) |
-| `make install-server` | Build + install + configure server on this machine |
-| `make deploy VM=user@host` | Build + deploy + configure server on remote VM |
-| `make deploy-client VM=user@host` | Build + deploy client on remote VM |
-| `make release` | Build all + publish GitHub release |
-| `make clean` | Remove `dist/` |
-
----
-
-## Updating
-
-```bash
-sudo auth-vpn update
-```
-
-The update command checks the latest GitHub release, downloads the right binary, atomically replaces the running file, and restarts the systemd service if active (Linux only). No config files are touched.
-
-Re-running the installer on an already-configured server is also safe — preserves `server.yaml`, skips TLS cert regeneration, keeps all tokens.
-
-### Changing the tunnel port
-
-```bash
-sudo auth-vpn server change-port
-```
-
-Updates `server.yaml` and the systemd service, then restarts. Remember to update your firewall/NSG rules and any saved client profiles.
-
-```bash
-auth-vpn version   # check current version
-```
-
----
-
-## Uninstalling
-
-### Client — macOS / Linux
-
-```bash
-auth-vpn disconnect
-sudo rm /usr/local/bin/auth-vpn
-rm -rf ~/.auth-vpn
-```
-
-### Server
-
-```bash
-sudo systemctl stop auth-vpn && sudo systemctl disable auth-vpn
-sudo rm /usr/local/bin/auth-vpn
-sudo rm -rf /etc/auth-vpn
-sudo rm -f /etc/systemd/system/auth-vpn.service
-sudo systemctl daemon-reload
-sudo rm -f /var/run/auth-vpn.sock
-```
-
----
-
-## Architecture
-
-See [docs/architecture.md](docs/architecture.md) for component map, packet flow, wire protocol, and key design decisions.
+All diagrams are in [`docs/diagrams/`](docs/diagrams): an `.svg` for reading and an `.excalidraw` for editing. To redraw them: `cd docs/diagrams/_src && npm install && npm run build`.

@@ -1,8 +1,14 @@
 # GitHub Actions
 
+← [README](../README.md)
+
 auth-vpn ships a ready-made GitHub Action. Add two steps to any job — connect and disconnect — and every service on the server VM becomes reachable at `10.8.0.1` during the job.
 
 Tokens are fully automatic: a unique ephemeral token is created per job run and revoked when the job ends. No manual token management, no conflicts between parallel matrix jobs.
+
+Think of it as a **day pass**: issued at the gate when the job starts, handed back when it ends, and expiring on its own after 2 hours if the runner crashes before it can hand it back.
+
+![A CI job's life](diagrams/avpn-ci-flow.svg)
 
 ---
 
