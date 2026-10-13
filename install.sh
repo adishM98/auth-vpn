@@ -321,7 +321,9 @@ print_client_usage() {
 # ── main ──────────────────────────────────────────────────────────────────────
 main() {
   echo ""
-  bold "  auth-vpn installer"
+  echo "     ╭───╮"
+  echo -e "     │ ${GREEN}●${RESET} │  ${BOLD}auth-vpn installer${RESET}"
+  echo "   ──┴───┴──"
   line
   echo ""
 

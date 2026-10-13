@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 359 72" width="538" height="108" role="img" aria-label="auth-vpn">
+  <style>path,circle{fill:none;stroke:#15191d;stroke-width:6;stroke-linecap:round;stroke-linejoin:round}.acc{stroke:#1f9d6e}.dot{fill:#1f9d6e;stroke:none}</style>
+  <path d="M17 54V30a15 15 0 0 1 30 0v24"/><path d="M9 54h46"/><circle class="dot" cx="32" cy="39" r="5"/>
+  <circle cx="100" cy="39" r="12"/><path d="M112 27V51"/><path d="M125 27V39a12 12 0 0 0 24 0M149 27V51"/><path d="M168 12V43a8 8 0 0 0 8 8h4M162 27H178"/><path d="M193 9V51M193 39a12 12 0 0 1 24 0V51"/><path class="acc" d="M230 39H242"/><path d="M255 27L267 51L279 27"/><path d="M292 27V66"/><circle cx="304" cy="39" r="12"/><path d="M329 27V51M329 39a12 12 0 0 1 24 0V51"/>
+</svg>

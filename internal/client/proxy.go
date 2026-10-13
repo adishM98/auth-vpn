@@ -285,7 +285,7 @@ func ConnectProxy(opts Options, forwards []ForwardRule) error {
 			defer ClearMeta() //nolint:errcheck
 		}
 	} else {
-		fmt.Printf("\n✓ Connected to auth-vpn (proxy mode)\n")
+		printConnectedBanner("✓ Connected to auth-vpn (proxy mode)")
 		for _, rule := range forwards {
 			fmt.Printf("  127.0.0.1:%-5d → %s:%d\n", rule.LocalPort, rule.RemoteHost, rule.RemotePort)
 		}

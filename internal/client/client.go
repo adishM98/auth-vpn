@@ -165,7 +165,7 @@ func Connect(opts Options) error {
 			defer ClearMeta() //nolint:errcheck
 		}
 	} else {
-		fmt.Printf("\n✓ Connected to auth-vpn\n")
+		printConnectedBanner("✓ Connected to auth-vpn")
 		fmt.Printf("  Tunnel IP : %s\n", resp.ClientIP)
 		fmt.Printf("  Server IP : %s\n", resp.ServerIP)
 		fmt.Printf("  Subnet    : %s\n", resp.Subnet)
@@ -318,4 +318,9 @@ func WaitForPing(addr string, timeout time.Duration) error {
 		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("server not reachable within %s", timeout)
+}
+
+// printConnectedBanner prints the doorway logo next to the connect headline.
+func printConnectedBanner(headline string) {
+	fmt.Printf("\n   ╭───╮\n   │ ● │  %s\n ──┴───┴──\n", headline)
 }
