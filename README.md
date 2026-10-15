@@ -66,11 +66,16 @@ auth-vpn disconnect
 > [!IMPORTANT]
 > Tunnel mode needs **`sudo`**: creating the virtual network card is a root-only operation. Without it you'll see `create tun: … operation not permitted`. No root available? Use [proxy mode](#which-door-should-i-use) instead.
 
-The first time, you're asked to trust the server's certificate fingerprint ("trust on first use"). After that, auth-vpn remembers it and refuses impostors. Save a profile so you never retype the token:
+The first time, you're asked to trust the server's certificate fingerprint ("trust on first use"). After that, auth-vpn remembers it and refuses impostors.
+
+Working with several deployments? Save each one once as a profile, then connect by name. `sudo auth-vpn connect` with no name shows a menu, and connecting to another profile switches the tunnel over:
 
 ```bash
-auth-vpn profile save staging --host <server-ip>:7777 --token <token>
-sudo auth-vpn connect staging --background --reconnect
+auth-vpn profile add stage <stage-ip> --token <token> --fingerprint SHA256:...
+auth-vpn profile add prod  <prod-ip>  --token <token> --fingerprint SHA256:...
+
+sudo auth-vpn connect          # pick from a menu
+sudo auth-vpn connect prod     # or by name; stops the stage tunnel first
 ```
 
 ### 3. Use it

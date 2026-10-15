@@ -276,6 +276,8 @@ func ConnectProxy(opts Options, forwards []ForwardRule) error {
 
 	if opts.Background {
 		meta := TunnelMeta{
+			Profile:     opts.Profile,
+			Proxy:       true,
 			ServerAddr:  opts.ServerAddr,
 			ConnectedAt: time.Now().UTC(),
 		}

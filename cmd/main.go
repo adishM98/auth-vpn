@@ -44,6 +44,9 @@ func rootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "auth-vpn",
 		Short: "Lightweight self-hosted VPN tunnel for developers and CI/CD",
+		// Runtime errors (no profile chosen, dial failed) aren't usage
+		// mistakes; printing the whole flag list after them buries the error.
+		SilenceUsage: true,
 	}
 	root.AddCommand(serverCmd(), connectCmd(), disconnectCmd(), statusCmd(), profileCmd(), versionCmd(), updateCmd(), hubCmd())
 	return root
@@ -456,12 +459,45 @@ func connectCmd() *cobra.Command {
 	var forwardRules, extraRoutes []string
 
 	cmd := &cobra.Command{
-		Use:   "connect <host:port|profile-name>",
-		Short: "Connect to an auth-vpn server",
-		Args:  cobra.ExactArgs(1),
+		Use:   "connect [profile-name|host:port]",
+		Short: "Connect to an auth-vpn server (no argument: pick a saved profile)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			target := args[0]
+			var target string
+			if len(args) == 1 {
+				target = args[0]
+			} else {
+				p, err := pickProfile(os.Stdin, os.Stdout, client.IsInteractive())
+				if err != nil {
+					return err
+				}
+				target = p.Name
+			}
+
+			// A saved profile supplies server, token, fingerprint, routes and
+			// forwards; flags given on the command line win over it. Anything
+			// that isn't a profile name is a server address (with no token the
+			// server checks its IP whitelist).
+			serverAddr, profileName := target, ""
+			if p, err := client.LoadProfile(target); err == nil {
+				serverAddr, profileName = p.Host, p.Name
+				if token == "" {
+					token = p.Token
+				}
+				if fingerprint == "" {
+					fingerprint = p.Fingerprint
+				}
+				extraRoutes = append(append([]string{}, p.Routes...), extraRoutes...)
+				if len(forwardRules) == 0 {
+					forwardRules = p.Forwards
+				}
+			} else if !errors.Is(err, client.ErrProfileNotFound) && !strings.Contains(target, ":") {
+				return err // unreadable profiles.yaml and target isn't an address
+			}
+
 			opts := client.Options{
+				ServerAddr:  serverAddr,
+				Profile:     profileName,
 				Token:       token,
 				Background:  background,
 				Wait:        wait,
@@ -472,20 +508,6 @@ func connectCmd() *cobra.Command {
 
 				NoPushRoutes: noPushRoutes,
 				NoPushDNS:    noPushDNS,
-			}
-
-			// If no token, check for a saved profile first, then try without token
-			// (server will accept if the client IP is whitelisted).
-			if token == "" {
-				p, err := client.LoadProfile(target)
-				if err == nil {
-					opts.ServerAddr = p.Host
-					opts.Token = p.Token
-				} else {
-					opts.ServerAddr = target // no token — server checks IP whitelist
-				}
-			} else {
-				opts.ServerAddr = target
 			}
 
 			// --github-action: reads AUTH_VPN_API_KEY from the environment and
@@ -550,6 +572,13 @@ func connectCmd() *cobra.Command {
 					return client.ConnectProxyWithReconnect(opts, forwards)
 				}
 				return client.ConnectProxy(opts, forwards)
+			}
+
+			// One TUN tunnel at a time: connecting elsewhere switches over.
+			if prev, stopped, err := client.StopRunningTunnel(); err != nil {
+				return err
+			} else if stopped {
+				fmt.Printf("switched %s → %s\n", tunnelLabel(prev), target)
 			}
 
 			if reconnect {
@@ -750,7 +779,7 @@ func disconnectCmd() *cobra.Command {
 			}
 			if !client.IsProcessAlive(meta.PID) {
 				fmt.Println("tunnel process is not running (stale state — cleaned up)")
-				return client.ClearMeta()
+				return client.ForceClearMeta()
 			}
 			proc, err := os.FindProcess(meta.PID)
 			if err != nil {
@@ -759,7 +788,7 @@ func disconnectCmd() *cobra.Command {
 			if err := proc.Signal(syscall.SIGTERM); err != nil {
 				return fmt.Errorf("signal process %d: %w", meta.PID, err)
 			}
-			fmt.Printf("disconnected (sent SIGTERM to pid %d)\n", meta.PID)
+			fmt.Printf("disconnected from %s (sent SIGTERM to pid %d)\n", tunnelLabel(meta), meta.PID)
 			return nil
 		},
 	}
@@ -786,6 +815,14 @@ func statusCmd() *cobra.Command {
 			}
 			uptime := time.Since(meta.ConnectedAt).Round(time.Second)
 			fmt.Println("status: connected")
+			if meta.Profile != "" {
+				fmt.Printf("  Profile      : %s\n", meta.Profile)
+			}
+			mode := "tun"
+			if meta.Proxy {
+				mode = "proxy"
+			}
+			fmt.Printf("  Mode         : %s\n", mode)
 			fmt.Printf("  PID          : %d\n", meta.PID)
 			fmt.Printf("  Server       : %s\n", meta.ServerAddr)
 			fmt.Printf("  Tunnel IP    : %s\n", meta.AssignedIP)
@@ -793,57 +830,6 @@ func statusCmd() *cobra.Command {
 			fmt.Printf("  Connected at : %s\n", meta.ConnectedAt.Local().Format(time.DateTime))
 			fmt.Printf("  Uptime       : %s\n", uptime)
 			return nil
-		},
-	}
-}
-
-// ─── profile ─────────────────────────────────────────────────────────────────
-
-func profileCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "profile",
-		Short: "Manage saved connection profiles",
-	}
-	cmd.AddCommand(profileSaveCmd(), profileListCmd())
-	return cmd
-}
-
-func profileSaveCmd() *cobra.Command {
-	var host, token string
-	cmd := &cobra.Command{
-		Use:   "save <name>",
-		Short: "Save a connection profile",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p := client.Profile{Name: args[0], Host: host, Token: token}
-			if err := client.SaveProfile(p); err != nil {
-				return err
-			}
-			fmt.Printf("profile %q saved — connect with: auth-vpn connect %s\n", args[0], args[0])
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&host, "host", "", "Server address host:port (required)")
-	cmd.Flags().StringVarP(&token, "token", "t", "", "Auth token (required)")
-	_ = cmd.MarkFlagRequired("host")
-	_ = cmd.MarkFlagRequired("token")
-	return cmd
-}
-
-func profileListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
-		Short: "List saved profiles",
-		Run: func(cmd *cobra.Command, args []string) {
-			profiles := client.ListProfiles()
-			if len(profiles) == 0 {
-				fmt.Println("no profiles saved")
-				return
-			}
-			fmt.Printf("%-20s  %s\n", "NAME", "HOST")
-			for _, p := range profiles {
-				fmt.Printf("%-20s  %s\n", p.Name, p.Host)
-			}
 		},
 	}
 }
