@@ -31,6 +31,9 @@ func NormalizeProfile(p Profile) (Profile, error) {
 	if p.Host == "" {
 		return p, fmt.Errorf("profile %q needs a server address", p.Name)
 	}
+	if p.Fingerprint != "" && !strings.HasPrefix(p.Fingerprint, "SHA256:") {
+		return p, fmt.Errorf("fingerprint must look like SHA256:..., got %q", p.Fingerprint)
+	}
 	if _, _, err := net.SplitHostPort(p.Host); err != nil {
 		p.Host = net.JoinHostPort(strings.Trim(p.Host, "[]"), DefaultPort)
 	}

@@ -454,8 +454,12 @@ func connectCmd() *cobra.Command {
 				if token == "" {
 					token = p.Token
 				}
-				if fingerprint == "" {
-					fingerprint = p.Fingerprint
+				if p.Fingerprint != "" {
+					// The profile's fingerprint comes from the admin, so it
+					// replaces any earlier trust-on-first-use answer.
+					if err := client.TrustFingerprint(p.Host, p.Fingerprint); err != nil {
+						return err
+					}
 				}
 				extraRoutes = append(append([]string{}, p.Routes...), extraRoutes...)
 				if len(forwardRules) == 0 {
@@ -747,17 +751,14 @@ func disconnectCmd() *cobra.Command {
 		Use:   "disconnect",
 		Short: "Disconnect a running background tunnel",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			meta, err := client.ReadMeta()
-			if err != nil {
-				if errors.Is(err, os.ErrNotExist) {
-					fmt.Println("no running tunnel found")
-					return nil
+			meta, ok := client.CurrentTunnel()
+			if !ok {
+				if _, err := client.ReadMeta(); err == nil {
+					fmt.Println("tunnel process is not running (stale state — cleaned up)")
+					return client.ForceClearMeta()
 				}
-				return err
-			}
-			if !client.IsProcessAlive(meta.PID) {
-				fmt.Println("tunnel process is not running (stale state — cleaned up)")
-				return client.ForceClearMeta()
+				fmt.Println("no running tunnel found")
+				return nil
 			}
 			proc, err := os.FindProcess(meta.PID)
 			if err != nil {
@@ -779,16 +780,21 @@ func statusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show current tunnel status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			meta, err := client.ReadMeta()
-			if err != nil {
-				if errors.Is(err, os.ErrNotExist) {
-					fmt.Println("status: not connected")
+			meta, ok := client.CurrentTunnel()
+			if !ok {
+				if _, err := client.ReadMeta(); err == nil {
+					fmt.Println("status: not connected (stale state file — run 'auth-vpn disconnect' to clean up)")
 					return nil
 				}
-				return err
+				fmt.Println("status: not connected")
+				return nil
 			}
-			if !client.IsProcessAlive(meta.PID) {
-				fmt.Println("status: not connected (stale state file — run 'auth-vpn disconnect' to clean up)")
+			if meta.ConnectedAt.IsZero() {
+				// Started by an auth-vpn from before profiles; it kept no state.
+				fmt.Println("status: connected")
+				fmt.Printf("  PID          : %d\n", meta.PID)
+				fmt.Printf("  Server       : %s\n", tunnelLabel(meta))
+				fmt.Println("  (started by an older auth-vpn; reconnect for full details)")
 				return nil
 			}
 			uptime := time.Since(meta.ConnectedAt).Round(time.Second)

@@ -133,20 +133,17 @@ const noProfilesHelp = `no saved profiles yet. Save each deployment once:
 then connect with: sudo auth-vpn connect <name>   (or just: sudo auth-vpn connect)`
 
 // runningTunnel returns the live tunnel recorded in tunnel.json, if any.
-func runningTunnel() (client.TunnelMeta, bool) {
-	m, err := client.ReadMeta()
-	if err != nil || !client.IsProcessAlive(m.PID) {
-		return client.TunnelMeta{}, false
-	}
-	return m, true
-}
+func runningTunnel() (client.TunnelMeta, bool) { return client.CurrentTunnel() }
 
 // tunnelLabel names a tunnel for messages: its profile, else its address.
 func tunnelLabel(m client.TunnelMeta) string {
 	if m.Profile != "" {
 		return m.Profile
 	}
-	return m.ServerAddr
+	if m.ServerAddr != "" {
+		return m.ServerAddr
+	}
+	return fmt.Sprintf("tunnel pid %d", m.PID)
 }
 
 func printProfiles(out io.Writer, profiles []client.Profile, numbered bool) {

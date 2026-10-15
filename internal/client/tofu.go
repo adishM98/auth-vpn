@@ -42,6 +42,17 @@ func saveKnownHosts(kh knownHostsFile) error {
 	return writePrivate(knownHostsPath(), data)
 }
 
+// TrustFingerprint pins addr to fp, so the next DialTLS verifies the
+// server against it instead of asking.
+func TrustFingerprint(addr, fp string) error {
+	kh := loadKnownHosts()
+	if kh.Hosts[addr] == fp {
+		return nil
+	}
+	kh.Hosts[addr] = fp
+	return saveKnownHosts(kh)
+}
+
 func fetchFingerprint(addr string) (string, error) {
 	return tlsutil.FetchFingerprint(addr)
 }

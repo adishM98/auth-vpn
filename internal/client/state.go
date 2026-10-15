@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -152,8 +154,8 @@ func IsProcessAlive(pid int) bool {
 // connecting to another server replaces the current one. Proxy-mode tunnels
 // don't touch routes and are left alone. Returns what was stopped.
 func StopRunningTunnel() (TunnelMeta, bool, error) {
-	m, err := ReadMeta()
-	if err != nil || m.Proxy || m.PID == os.Getpid() || !IsProcessAlive(m.PID) {
+	m, ok := CurrentTunnel()
+	if !ok || m.Proxy {
 		return TunnelMeta{}, false, nil
 	}
 	proc, err := os.FindProcess(m.PID)
@@ -170,4 +172,46 @@ func StopRunningTunnel() (TunnelMeta, bool, error) {
 		return m, false, fmt.Errorf("running tunnel (pid %d) did not exit within 10s", m.PID)
 	}
 	return m, true, nil
+}
+
+// CurrentTunnel returns the running tunnel: the one in tunnel.json, or else
+// one started by an auth-vpn from before profile switching, which either
+// wrote no state file (foreground) or wrote it to root's home under sudo.
+func CurrentTunnel() (TunnelMeta, bool) {
+	if m, err := ReadMeta(); err == nil && m.PID != os.Getpid() && IsProcessAlive(m.PID) {
+		return m, true
+	}
+	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()
+	if err != nil {
+		return TunnelMeta{}, false // no ps (Windows): nothing more to find
+	}
+	return findConnectProcess(string(out), os.Getpid())
+}
+
+// findConnectProcess picks an `auth-vpn connect` process out of ps output.
+// Only the auth-vpn binary itself counts (not the sudo or shell wrapping
+// it), and a --forward command line is a proxy tunnel.
+// ponytail: first match wins; two untracked TUN tunnels were already broken.
+func findConnectProcess(ps string, self int) (TunnelMeta, bool) {
+	for _, line := range strings.Split(ps, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 || filepath.Base(f[1]) != "auth-vpn" || f[2] != "connect" {
+			continue
+		}
+		pid, err := strconv.Atoi(f[0])
+		if err != nil || pid == self {
+			continue
+		}
+		m := TunnelMeta{PID: pid}
+		for _, a := range f[3:] {
+			if strings.HasPrefix(a, "--forward") {
+				m.Proxy = true
+			}
+		}
+		if len(f) > 3 && !strings.HasPrefix(f[3], "-") {
+			m.ServerAddr = f[3]
+		}
+		return m, true
+	}
+	return TunnelMeta{}, false
 }

@@ -75,6 +75,9 @@ func TestNormalizeProfileRejectsBadNames(t *testing.T) {
 	if _, err := NormalizeProfile(Profile{Name: "ok"}); err == nil {
 		t.Error("profile without host accepted")
 	}
+	if _, err := NormalizeProfile(Profile{Name: "ok", Host: "h", Fingerprint: "ab:cd"}); err == nil {
+		t.Error("malformed fingerprint accepted")
+	}
 	p, _ := NormalizeProfile(Profile{Name: "v6", Host: "[2001:db8::1]"})
 	if p.Host != "[2001:db8::1]:7777" {
 		t.Errorf("ipv6 host = %q", p.Host)
@@ -122,4 +125,41 @@ func TestWritePrivateRefusesSymlinkedDir(t *testing.T) {
 	if err := writePrivate(metaFile(), []byte("{}")); err == nil {
 		t.Fatal("wrote through a symlinked state dir")
 	}
+}
+
+func TestTrustFingerprintReplacesEarlierAnswer(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_ = TrustFingerprint("203.0.113.10:7777", "SHA256:old")
+	if err := TrustFingerprint("203.0.113.10:7777", "SHA256:new"); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadKnownHosts().Hosts["203.0.113.10:7777"]; got != "SHA256:new" {
+		t.Fatalf("pinned %q", got)
+	}
+}
+
+func TestFindConnectProcess(t *testing.T) {
+	ps := `  101 /usr/bin/sudo auth-vpn connect stage
+  102 auth-vpn connect 203.0.113.10:7777 --token x
+  103 sh -c auth-vpn connect prod
+  104 /usr/local/bin/auth-vpn connect prod-db --forward 15432:10.8.0.1:5432
+  105 auth-vpn status`
+
+	t.Run("finds the auth-vpn process, not the sudo wrapping it", func(t *testing.T) {
+		m, ok := findConnectProcess(ps, 1)
+		if !ok || m.PID != 102 || m.ServerAddr != "203.0.113.10:7777" || m.Proxy {
+			t.Fatalf("got %+v %v", m, ok)
+		}
+	})
+	t.Run("skips itself and marks --forward as proxy", func(t *testing.T) {
+		m, ok := findConnectProcess(ps, 102)
+		if !ok || m.PID != 104 || !m.Proxy {
+			t.Fatalf("got %+v %v", m, ok)
+		}
+	})
+	t.Run("nothing running", func(t *testing.T) {
+		if _, ok := findConnectProcess("  105 auth-vpn status", 1); ok {
+			t.Fatal("matched a non-connect command")
+		}
+	})
 }
