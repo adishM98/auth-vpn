@@ -68,3 +68,36 @@ func TestPickProfile(t *testing.T) {
 		}
 	})
 }
+
+func TestOfferToSaveProfile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_ = client.SaveProfile(client.Profile{Name: "stage", Host: "203.0.113.10:7777", Token: "s"})
+
+	for _, tc := range []struct{ name, addr, input, want string }{
+		{"Enter skips", "198.51.100.7:7777", "\n", ""},
+		{"end of input skips", "198.51.100.7:7777", "", ""},
+		{"takes a name", "198.51.100.7:7777", "prod\n", "prod"},
+		{"re-asks on a taken or invalid name", "198.51.100.7:7777", "stage\nbad name\nprod\n", "prod"},
+		{"never asks for a server that already has a profile", "203.0.113.10:7777", "x\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := askProfileName(strings.NewReader(tc.input), &bytes.Buffer{}, tc.addr); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("saves once, after connecting, with the trusted fingerprint", func(t *testing.T) {
+		_ = client.TrustFingerprint("198.51.100.7:7777", "SHA256:prod")
+		save := saveProfileOnce(client.Profile{Name: "prod", Host: "198.51.100.7:7777", Token: "p"})
+		if _, err := client.LoadProfile("prod"); err == nil {
+			t.Fatal("saved before the tunnel came up")
+		}
+		save()
+		save() // a reconnect must not save or print again
+		p, err := client.LoadProfile("prod")
+		if err != nil || p.Token != "p" || p.Fingerprint != "SHA256:prod" {
+			t.Fatalf("got %+v, %v", p, err)
+		}
+	})
+}

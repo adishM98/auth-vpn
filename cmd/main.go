@@ -483,6 +483,16 @@ func connectCmd() *cobra.Command {
 				NoPushDNS:    noPushDNS,
 			}
 
+			// First connect to a new server by hand: offer to save it, so next
+			// time it's just `auth-vpn connect <name>`. Saved only once the
+			// tunnel is up, so a mistyped token never ends up in a profile.
+			if profileName == "" && token != "" && !githubAction && apiKey == "" && client.IsInteractive() {
+				if name := askProfileName(os.Stdin, os.Stdout, serverAddr); name != "" {
+					opts.OnConnected = saveProfileOnce(client.Profile{Name: name, Host: serverAddr,
+						Token: token, Routes: extraRoutes, Forwards: forwardRules})
+				}
+			}
+
 			// --github-action: reads AUTH_VPN_API_KEY from the environment and
 			// generates a unique ephemeral token per job using GitHub's own env vars
 			// (GITHUB_RUN_ID, GITHUB_JOB, GITHUB_RUN_ATTEMPT). Safe for parallel

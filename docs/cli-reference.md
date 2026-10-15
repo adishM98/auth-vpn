@@ -115,8 +115,10 @@ Point your app at `127.0.0.1:<localPort>` — it connects as if the service is l
 
 A profile is one deployment saved under a name: server address, token, certificate fingerprint, and optionally extra routes or proxy forwards. Save each deployment once, then connect by name.
 
+The easy way: connect once with the full address and token from a terminal. auth-vpn asks for a name before connecting and saves the profile once the tunnel is up, together with the fingerprint you just trusted and any `--route`/`--forward` flags. A wrong token never gets saved, Enter skips, and it doesn't ask for a server that already has a profile or when there's no terminal (CI, scripts).
+
 ```bash
-# Save (port defaults to 7777). Re-running add changes only the flags you pass.
+# Or save directly (port defaults to 7777). Re-running add changes only the flags you pass.
 auth-vpn profile add stage <server-ip> --token <token> --fingerprint SHA256:...
 auth-vpn profile add prod-db <server-ip>:7777 --token <token> --forward 15432:10.8.0.1:5432
 auth-vpn profile add stage --token <new-token>      # after a token rotation

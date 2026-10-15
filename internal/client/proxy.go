@@ -294,6 +294,10 @@ func ConnectProxy(opts Options, forwards []ForwardRule) error {
 		fmt.Println()
 	}
 
+	if opts.OnConnected != nil {
+		opts.OnConnected()
+	}
+
 	go mux.readLoop()
 
 	// Keepalive

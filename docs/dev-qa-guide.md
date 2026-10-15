@@ -53,7 +53,14 @@ sudo auth-vpn connect 203.0.113.10:7777 --token a1b2c3d4e5f6
 
 ## Step 3 — Save a profile (do this once)
 
-So you never have to type the token again:
+So you never have to type the token again. The first time you connect with the token (Step 2), auth-vpn asks:
+
+```
+Save 203.0.113.10:7777 as a profile, so next time it's just `auth-vpn connect <name>`?
+Profile name (Enter to skip): work
+```
+
+Type a name. It's saved as soon as the tunnel is up. Missed it? Save it by hand:
 
 ```bash
 auth-vpn profile add work 203.0.113.10:7777 \

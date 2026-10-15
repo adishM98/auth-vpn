@@ -73,12 +73,17 @@ auth-vpn disconnect
 
 The first time, you're asked to trust the server's certificate fingerprint ("trust on first use"). After that, auth-vpn remembers it and refuses impostors.
 
-Working with several deployments? Save each one once as a profile, then connect by name. `sudo auth-vpn connect` with no name shows a menu, and connecting to another profile switches the tunnel over:
+Working with several deployments? The first time you connect to one with a token, auth-vpn offers to save it under a name. After that the name is enough, `sudo auth-vpn connect` with no name shows a menu, and connecting to another deployment switches the tunnel over:
+
+```text
+$ sudo auth-vpn connect <stage-ip>:7777 --token <token>
+Save <stage-ip>:7777 as a profile, so next time it's just `auth-vpn connect <name>`?
+Profile name (Enter to skip): stage
+  ...
+  Saved as profile "stage". Next time: sudo auth-vpn connect stage
+```
 
 ```bash
-auth-vpn profile add stage <stage-ip> --token <token> --fingerprint SHA256:...
-auth-vpn profile add prod  <prod-ip>  --token <token> --fingerprint SHA256:...
-
 sudo auth-vpn connect          # pick from a menu
 sudo auth-vpn connect prod     # or by name; stops the stage tunnel first
 ```

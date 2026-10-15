@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	"github.com/adishM98/auth-vpn/internal/client"
@@ -128,9 +130,10 @@ func profileRemoveCmd() *cobra.Command {
 	}
 }
 
-const noProfilesHelp = `no saved profiles yet. Save each deployment once:
-  auth-vpn profile add <name> <host:port> --token <token> --fingerprint <SHA256:...>
-then connect with: sudo auth-vpn connect <name>   (or just: sudo auth-vpn connect)`
+const noProfilesHelp = `no saved profiles yet. Connect once with the token you were given:
+  sudo auth-vpn connect <host:port> --token <token>
+and you'll be offered to save it; after that it's sudo auth-vpn connect <name>
+(or add one directly: auth-vpn profile add <name> <host:port> --token <token>)`
 
 // runningTunnel returns the live tunnel recorded in tunnel.json, if any.
 func runningTunnel() (client.TunnelMeta, bool) { return client.CurrentTunnel() }
@@ -223,5 +226,60 @@ func pickProfile(in io.Reader, out io.Writer, interactive bool) (client.Profile,
 		if err != nil {
 			return client.Profile{}, errors.New("no profile chosen")
 		}
+	}
+}
+
+// askProfileName offers to save a server the user just typed out in full.
+// Returns "" to skip: Enter, end of input, or a profile for this server
+// already exists (then the user already has a short name for it).
+func askProfileName(in io.Reader, out io.Writer, addr string) string {
+	profiles, err := client.ListProfiles()
+	if err != nil {
+		return ""
+	}
+	for _, p := range profiles {
+		if p.Host == addr {
+			return ""
+		}
+	}
+	r := bufio.NewReader(in)
+	fmt.Fprintf(out, "Save %s as a profile, so next time it's just `auth-vpn connect <name>`?\n", addr)
+	for {
+		fmt.Fprint(out, "Profile name (Enter to skip): ")
+		line, err := r.ReadString('\n')
+		name := strings.TrimSpace(line)
+		if name == "" {
+			return ""
+		}
+		if _, nerr := client.NormalizeProfile(client.Profile{Name: name, Host: addr}); nerr != nil {
+			fmt.Fprintln(out, nerr)
+		} else if _, lerr := client.LoadProfile(name); lerr == nil {
+			fmt.Fprintf(out, "profile %q already exists, pick another name\n", name)
+		} else {
+			return name
+		}
+		if err != nil {
+			return ""
+		}
+	}
+}
+
+// saveProfileOnce saves p the first time the tunnel comes up, with the
+// fingerprint trusted while connecting, so the profile is pinned too.
+func saveProfileOnce(p client.Profile) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			p.Fingerprint = client.KnownFingerprint(p.Host)
+			if err := client.SaveProfile(p); err != nil {
+				log.Printf("warning: could not save profile %q: %v", p.Name, err)
+				return
+			}
+			sudo := "sudo "
+			if len(p.Forwards) > 0 {
+				sudo = "" // proxy mode needs no root
+			}
+			fmt.Printf("  Saved as profile %q. Next time: %sauth-vpn connect %s\n\n", p.Name, sudo, p.Name)
+		})
 	}
 }

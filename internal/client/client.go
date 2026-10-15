@@ -35,6 +35,8 @@ type Options struct {
 	NoPushDNS    bool // ignore split DNS pushed by the server
 
 	Profile string // saved profile this connection came from, shown by status
+
+	OnConnected func() // called once the tunnel is up (each reconnect too)
 }
 
 // Profile is a saved connection profile (stored in ~/.auth-vpn/profiles.yaml):
@@ -265,6 +267,10 @@ func Connect(opts Options) error {
 			}
 		}
 	}()
+
+	if opts.OnConnected != nil {
+		opts.OnConnected()
+	}
 
 	// Handle OS signals for graceful disconnect.
 	sig := make(chan os.Signal, 1)
