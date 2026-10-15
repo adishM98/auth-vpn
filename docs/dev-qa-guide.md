@@ -14,7 +14,7 @@ You need two things from your infra/admin team:
 
 | What | Example | Where to get it |
 |------|---------|-----------------|
-| **Server address** | `172.190.141.231:7777` | Ask your admin |
+| **Server address** | `203.0.113.10:7777` | Ask your admin |
 | **Your token** | `a1b2c3d4e5f6...` | Ask your admin (see below) |
 
 > **How to request a token** — Ping your infra team with your name and ask them to run:
@@ -41,23 +41,29 @@ sudo auth-vpn connect <server-address> --token <your-token>
 
 Example:
 ```bash
-sudo auth-vpn connect 172.190.141.231:7777 --token a1b2c3d4e5f6
+sudo auth-vpn connect 203.0.113.10:7777 --token a1b2c3d4e5f6
 ```
 
 > **Tip:** Add `--background` to keep it running after you close the terminal, and `--reconnect` to auto-reconnect if it drops:
 > ```bash
-> sudo auth-vpn connect 172.190.141.231:7777 --token a1b2c3d4e5f6 --background --reconnect
+> sudo auth-vpn connect 203.0.113.10:7777 --token a1b2c3d4e5f6 --background --reconnect
 > ```
 
 ---
 
 ## Step 3 — Save a profile (do this once)
 
-So you never have to type the token again:
+So you never have to type the token again. The first time you connect with the token (Step 2), auth-vpn asks:
+
+```
+Save 203.0.113.10:7777 as a profile, so next time it's just `auth-vpn connect <name>`?
+Profile name (Enter to skip): work
+```
+
+Type a name. It's saved as soon as the tunnel is up. Missed it? Save it by hand:
 
 ```bash
-auth-vpn profile save work \
-  --host 172.190.141.231:7777 \
+auth-vpn profile add work 203.0.113.10:7777 \
   --token a1b2c3d4e5f6
 ```
 
@@ -95,7 +101,7 @@ auth-vpn status
 When connected, you'll see:
 ```
 status: connected
-  Server       : 172.190.141.231:7777
+  Server       : 203.0.113.10:7777
   Tunnel IP    : 10.8.0.2
   Connected at : 2026-04-30 09:30:00
   Uptime       : 2h15m30s
@@ -141,8 +147,10 @@ Normal — the installer needs sudo to set up the tunnel interface. Enter your M
 | Command | What it does |
 |---------|--------------|
 | `sudo auth-vpn connect <host> --token <tok>` | Connect to VPN |
-| `sudo auth-vpn connect <profile>` | Connect using saved profile |
+| `sudo auth-vpn connect <profile>` | Connect using saved profile (switches from any running one) |
+| `sudo auth-vpn connect` | Pick a saved profile from a menu |
 | `auth-vpn disconnect` | Disconnect |
 | `auth-vpn status` | Check if connected |
-| `auth-vpn profile save <name> --host <h> --token <t>` | Save a profile |
+| `auth-vpn profile add <name> <host> --token <t>` | Save a profile |
 | `auth-vpn profile list` | List saved profiles |
+| `auth-vpn profile rm <name>` | Delete a profile |

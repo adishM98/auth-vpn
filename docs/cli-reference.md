@@ -53,7 +53,7 @@ auth-vpn server tokens revoke --name "dev-alice"
 # Connect interactively (Ctrl+C to disconnect)
 sudo auth-vpn connect <server-ip>:7777 --token <token>
 
-# Connect using a saved profile
+# Connect using a saved profile (no name: pick from a menu)
 sudo auth-vpn connect staging
 
 # Background mode (survives terminal close)
@@ -113,10 +113,39 @@ Point your app at `127.0.0.1:<localPort>` — it connects as if the service is l
 
 ## Profiles
 
+A profile is one deployment saved under a name: server address, token, certificate fingerprint, and optionally extra routes or proxy forwards. Save each deployment once, then connect by name.
+
+The easy way: connect once with the full address and token from a terminal. auth-vpn asks for a name before connecting and saves the profile once the tunnel is up, together with the fingerprint you just trusted and any `--route`/`--forward` flags. A wrong token never gets saved, Enter skips, and it doesn't ask for a server that already has a profile or when there's no terminal (CI, scripts).
+
 ```bash
-auth-vpn profile save staging --host <server-ip>:7777 --token <token>
-auth-vpn profile list
+# Or save directly (port defaults to 7777). Re-running add changes only the flags you pass.
+auth-vpn profile add stage <server-ip> --token <token> --fingerprint SHA256:...
+auth-vpn profile add prod-db <server-ip>:7777 --token <token> --forward 15432:10.8.0.1:5432
+auth-vpn profile add stage --token <new-token>      # after a token rotation
+
+auth-vpn profile list                               # ● marks the connected one
+auth-vpn profile rm prod-db
+
+sudo auth-vpn connect                               # menu of saved profiles
+sudo auth-vpn connect stage                         # by name
 ```
+
+```
+Saved deployments
+
+  #  NAME     SERVER              MODE                 CERTIFICATE  STATUS
+  1  stage    203.0.113.10:7777   tun                  pinned       ● connected
+  2  prod-db  198.51.100.7:7777   proxy, 1 forward(s)  pinned
+
+Connect to [1-2 or name]:
+```
+
+- **Switching:** only one tunnel-mode connection runs at a time, because every server hands out the same `10.8.0.0/24` by default. Connecting to another profile stops the running tunnel first and prints `switched stage → prod`. Proxy-mode connections don't touch routes, so they keep running. A tunnel started by an auth-vpn from before profiles (which kept no state) is found from the process list, so `status`, `disconnect` and switching handle it too.
+- **Flags win:** `--token` and `--forward` given on the command line override the profile for that run; `--route` adds to its routes.
+- **Fingerprint:** the `SHA256:...` value the trust prompt shows on first connect (ask your admin for it). With it in the profile, auth-vpn checks the server against it and never asks; it replaces any earlier trust answer for that address.
+- **sudo:** profiles and trusted fingerprints are kept in your own `~/.auth-vpn`, also when you run `sudo auth-vpn connect`. `auth-vpn status` and `profile list` work without sudo.
+- **Scripts:** without a terminal, `auth-vpn connect` with no name refuses to guess and lists the profile names.
+- `profile save <name> --host <h> --token <t>` still works (it's an alias of `add`).
 
 ## Hub
 

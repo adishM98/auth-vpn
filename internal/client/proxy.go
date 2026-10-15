@@ -276,6 +276,8 @@ func ConnectProxy(opts Options, forwards []ForwardRule) error {
 
 	if opts.Background {
 		meta := TunnelMeta{
+			Profile:     opts.Profile,
+			Proxy:       true,
 			ServerAddr:  opts.ServerAddr,
 			ConnectedAt: time.Now().UTC(),
 		}
@@ -290,6 +292,10 @@ func ConnectProxy(opts Options, forwards []ForwardRule) error {
 			fmt.Printf("  127.0.0.1:%-5d → %s:%d\n", rule.LocalPort, rule.RemoteHost, rule.RemotePort)
 		}
 		fmt.Println()
+	}
+
+	if opts.OnConnected != nil {
+		opts.OnConnected()
 	}
 
 	go mux.readLoop()

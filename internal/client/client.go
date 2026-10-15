@@ -33,13 +33,21 @@ type Options struct {
 
 	NoPushRoutes bool // ignore routes pushed by the server
 	NoPushDNS    bool // ignore split DNS pushed by the server
+
+	Profile string // saved profile this connection came from, shown by status
+
+	OnConnected func() // called once the tunnel is up (each reconnect too)
 }
 
-// Profile is a saved connection profile (stored in ~/.auth-vpn/profiles.yaml).
+// Profile is a saved connection profile (stored in ~/.auth-vpn/profiles.yaml):
+// everything needed to reach one deployment with `auth-vpn connect <name>`.
 type Profile struct {
-	Name   string `yaml:"name"`
-	Host   string `yaml:"host"`
-	Token  string `yaml:"token"`
+	Name        string   `yaml:"name"`
+	Host        string   `yaml:"host"`
+	Token       string   `yaml:"token,omitempty"`
+	Fingerprint string   `yaml:"fingerprint,omitempty"`
+	Routes      []string `yaml:"routes,omitempty"`
+	Forwards    []string `yaml:"forwards,omitempty"`
 }
 
 // Connect dials the server, authenticates, sets up the TUN interface,
@@ -151,20 +159,22 @@ func Connect(opts Options) error {
 
 	log.Printf("tunnel up — route %s via %s", resp.Subnet, ifaceName)
 
-	if opts.Background {
-		meta := TunnelMeta{
-			ServerAddr:  opts.ServerAddr,
-			AssignedIP:  resp.ClientIP,
-			ServerIP:    resp.ServerIP,
-			Subnet:      resp.Subnet,
-			ConnectedAt: time.Now().UTC(),
-		}
-		if err := WriteMeta(meta); err != nil {
-			log.Printf("warning: could not write tunnel state: %v", err)
-		} else {
-			defer ClearMeta() //nolint:errcheck
-		}
+	// Always recorded (not only with --background), so status, disconnect
+	// and switching to another server see foreground tunnels too.
+	meta := TunnelMeta{
+		Profile:     opts.Profile,
+		ServerAddr:  opts.ServerAddr,
+		AssignedIP:  resp.ClientIP,
+		ServerIP:    resp.ServerIP,
+		Subnet:      resp.Subnet,
+		ConnectedAt: time.Now().UTC(),
+	}
+	if err := WriteMeta(meta); err != nil {
+		log.Printf("warning: could not write tunnel state: %v", err)
 	} else {
+		defer ClearMeta() //nolint:errcheck
+	}
+	if !opts.Background {
 		printConnectedBanner("✓ Connected to auth-vpn")
 		fmt.Printf("  Tunnel IP : %s\n", resp.ClientIP)
 		fmt.Printf("  Server IP : %s\n", resp.ServerIP)
@@ -257,6 +267,10 @@ func Connect(opts Options) error {
 			}
 		}
 	}()
+
+	if opts.OnConnected != nil {
+		opts.OnConnected()
+	}
 
 	// Handle OS signals for graceful disconnect.
 	sig := make(chan os.Signal, 1)
