@@ -19,10 +19,7 @@ type knownHostsFile struct {
 	Hosts map[string]string `yaml:"hosts"` // "host:port" → fingerprint
 }
 
-func knownHostsPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".auth-vpn", "known_hosts.yaml")
-}
+func knownHostsPath() string { return filepath.Join(stateDir(), "known_hosts.yaml") }
 
 func loadKnownHosts() knownHostsFile {
 	data, err := os.ReadFile(knownHostsPath())
@@ -38,15 +35,11 @@ func loadKnownHosts() knownHostsFile {
 }
 
 func saveKnownHosts(kh knownHostsFile) error {
-	path := knownHostsPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
 	data, err := yaml.Marshal(kh)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return writePrivate(knownHostsPath(), data)
 }
 
 func fetchFingerprint(addr string) (string, error) {
@@ -64,12 +57,18 @@ func isCertError(err error) bool {
 		strings.Contains(s, "tls: failed to verify")
 }
 
-func isInteractive() bool {
+// IsInteractive reports whether stdin is a terminal a person can answer on.
+// /dev/null is also a character device, so it is ruled out explicitly: a
+// service started with stdin from /dev/null must not wait on a prompt.
+func IsInteractive() bool {
 	fi, err := os.Stdin.Stat()
-	if err != nil {
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
 		return false
 	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
+	if null, err := os.Stat(os.DevNull); err == nil && os.SameFile(fi, null) {
+		return false
+	}
+	return true
 }
 
 // DialTLS connects to addr with TOFU certificate pinning.
@@ -112,7 +111,7 @@ func DialTLS(addr string, insecure bool) (*tls.Conn, error) {
 		return nil, fmt.Errorf("TLS: %w", err)
 	}
 
-	if isInteractive() {
+	if IsInteractive() {
 		fmt.Printf("\n⚠  Server is using a self-signed certificate.\n")
 		fmt.Printf("   Server      : %s\n", addr)
 		fmt.Printf("   Fingerprint : %s\n\n", fp)
@@ -131,7 +130,7 @@ func DialTLS(addr string, insecure bool) (*tls.Conn, error) {
 	kh.Hosts[addr] = fp
 	if saveErr := saveKnownHosts(kh); saveErr != nil {
 		log.Printf("warning: could not save server fingerprint: %v", saveErr)
-	} else if isInteractive() {
+	} else if IsInteractive() {
 		fmt.Printf("   ✓ Fingerprint saved — won't ask again\n\n")
 	}
 
