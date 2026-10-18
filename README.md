@@ -9,8 +9,6 @@
 
 ![Connecting from a laptop: the private database answers, then switching from stage to prod](docs/demo/media/terminal.gif)
 
-<p align="center"><b><a href="docs/demo/media/tour.mp4">▶ Watch the 90-second narrated tour</a></b>: the terminal and the dashboard</p>
-
 ![auth-vpn: outside, the doorman, and your private network](docs/diagrams/avpn-big-picture.svg)
 
 ---

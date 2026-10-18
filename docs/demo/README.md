@@ -7,8 +7,7 @@ How the clips in the README are made, so they can be re-recorded when the CLI or
 | Clip | Made with | Source |
 |---|---|---|
 | `media/terminal.gif` | [VHS](https://github.com/charmbracelet/vhs), inside the demo "laptop" container | `terminal.tape` |
-| `media/dashboard.gif` | cut from the tour | `tour/` |
-| `media/tour.mp4` | [Argo](https://github.com/shreyaskarnik/argo): Playwright recording plus a local Kokoro voiceover | `tour/demos/tour.*` |
+| `media/dashboard.gif` | cut from a recording made with [Argo](https://github.com/shreyaskarnik/argo) (Playwright plus a local Kokoro voiceover that paces the scenes) | `tour/demos/tour.*` |
 
 ## The environment
 
@@ -28,10 +27,9 @@ Needs Docker and Node 20+.
 docs/demo/env.sh up            # build and start (about 2 min the first time)
 docs/demo/env.sh tape          # media/terminal.gif + .mp4
 docs/demo/env.sh dash          # put a live client on stage for the dashboard
-cd docs/demo/tour && npm ci && npx argo pipeline tour
-cp videos/tour.mp4 ../media/tour.mp4
-# dashboard GIF: the dashboard half of the tour, muted
-ffmpeg -ss <start> -i ../media/tour.mp4 -t <length> \
+cd docs/demo/tour && npm ci && npx argo pipeline tour   # videos/tour.mp4, not committed
+# dashboard GIF: the dashboard half of the tour (start/length from the scene table Argo prints)
+ffmpeg -ss <start> -i videos/tour.mp4 -t <length> \
   -vf "fps=12,scale=1000:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" ../media/dashboard.gif
 docs/demo/env.sh down
 ```

@@ -5,3 +5,4 @@ videos/
 .argo/
 test-results/
 playwright-report/
+media/*.mp4
