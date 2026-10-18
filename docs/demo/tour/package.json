@@ -1,0 +1,12 @@
+{
+  "name": "auth-vpn-tour",
+  "private": true,
+  "description": "Narrated product tour for the auth-vpn README, recorded with Argo. See ../README.md.",
+  "scripts": {
+    "tour": "argo pipeline tour"
+  },
+  "devDependencies": {
+    "@argo-video/cli": "^0.41.0",
+    "kokoro-js": "^1.2.1"
+  }
+}
