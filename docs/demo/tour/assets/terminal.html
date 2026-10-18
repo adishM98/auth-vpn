@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>auth-vpn terminal</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #11111b; display: grid; place-items: center; }
+  video { width: 92vw; max-height: 92vh; border-radius: 12px; box-shadow: 0 20px 60px #0008; }
+</style>
+<video id="t" src="../../media/terminal.mp4" muted playsinline preload="auto"></video>
+<script>
+  // playSeg(start, end): play one segment of the terminal recording, then hold
+  // its last frame, so narration can run longer than the segment.
+  const v = document.getElementById('t');
+  window.playSeg = (start, end) => new Promise((done) => {
+    v.currentTime = start;
+    const stop = () => { if (v.currentTime >= end) { v.pause(); v.removeEventListener('timeupdate', stop); done(); } };
+    v.addEventListener('timeupdate', stop);
+    v.play();
+  });
+</script>

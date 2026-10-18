@@ -7,6 +7,8 @@
 
 **One small doorman in front of your private network.** A self-hosted VPN for developers, QA and CI, shipped as a single Go binary: one open port, one token per person, and every app on your laptop reaches private databases and services as if it were sitting next to them.
 
+![Connecting from a laptop: the private database answers, then switching from stage to prod](docs/demo/media/terminal.gif)
+
 ![auth-vpn: outside, the doorman, and your private network](docs/diagrams/avpn-big-picture.svg)
 
 ---
@@ -196,7 +198,11 @@ auth-vpn then routes and allows **only labelled Services**. It enforces that its
 
 ## The dashboard
 
-Live clients, traffic, tokens, IP whitelist, SSH keys and direct forwards, all on port `9100`, which speaks **both `http://` and `https://`**:
+Live clients, traffic, tokens, IP whitelist, SSH keys and direct forwards, all on port `9100`, which speaks **both `http://` and `https://`**.
+
+![The dashboard: a live client, kicking it, creating a token and whitelisting a CI range](docs/demo/media/dashboard.gif)
+
+How to reach it:
 
 ![How to reach the dashboard](docs/diagrams/avpn-dashboard-access.svg)
 
@@ -337,4 +343,4 @@ sudo rm -rf /etc/auth-vpn && sudo systemctl daemon-reload
 | onboard a developer / QA | [docs/dev-qa-guide.md](docs/dev-qa-guide.md) |
 | step-by-step VM install | [INSTALL.md](INSTALL.md) |
 
-All diagrams are in [`docs/diagrams/`](docs/diagrams): an `.svg` for reading and an `.excalidraw` for editing. To redraw them: `cd docs/diagrams/_src && npm install && npm run build`.
+The demo clips are recorded in throwaway containers; [`docs/demo/`](docs/demo) has the scripts to re-record them. All diagrams are in [`docs/diagrams/`](docs/diagrams): an `.svg` for reading and an `.excalidraw` for editing. To redraw them: `cd docs/diagrams/_src && npm install && npm run build`.

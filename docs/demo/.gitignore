@@ -1,0 +1,8 @@
+auth-vpn
+.env
+node_modules/
+videos/
+.argo/
+test-results/
+playwright-report/
+media/*.mp4
