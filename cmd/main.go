@@ -490,6 +490,7 @@ func connectCmd() *cobra.Command {
 				if name := askProfileName(os.Stdin, os.Stdout, serverAddr); name != "" {
 					opts.OnConnected = saveProfileOnce(client.Profile{Name: name, Host: serverAddr,
 						Token: token, Routes: extraRoutes, Forwards: forwardRules})
+					opts.Profile = name // so status, the menu and switching name this tunnel
 				}
 			}
 
